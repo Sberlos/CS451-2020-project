@@ -4,6 +4,7 @@
 
 #include "barrier.hpp"
 #include "parser.hpp"
+#include "host.hpp"
 #include "hello.h"
 #include <signal.h>
 
