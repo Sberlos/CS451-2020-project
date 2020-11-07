@@ -59,6 +59,9 @@ int main(int argc, char **argv) {
   parser.parse();
 
   hello();
+
+  HostC node = HostC(parser.id(), parser.configPath());
+
   std::cout << std::endl;
 
   std::cout << "My PID: " << getpid() << "\n";
@@ -75,6 +78,9 @@ int main(int argc, char **argv) {
   std::cout << "==========================\n";
   auto hosts = parser.hosts();
   for (auto &host : hosts) {
+
+    node.addHost(host.id, host.port, host.ip);
+
     std::cout << host.id << "\n";
     std::cout << "Human-readable IP: " << host.ipReadable() << "\n";
     std::cout << "Machine-readable IP: " << host.ip << "\n";
@@ -116,10 +122,15 @@ int main(int argc, char **argv) {
 
   Coordinator coordinator(parser.id(), barrier, signal);
 
+  //Host h = Host(atoi(parser.id().c_str()), parser
+
   // open config file and read value
   // create data structures
   // initialize network
   // do everything I can to save time
+  
+  node.initialize_network();
+  std::thread listener(&HostC::handleMessages, node);
 
   std::cout << "Waiting for all processes to finish initialization\n\n";
   coordinator.waitOnBarrier();
