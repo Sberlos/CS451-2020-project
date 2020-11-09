@@ -32,6 +32,9 @@ int initializeNetwork() {
 }
 */
 
+// terrible thing having a global but I don't know how to avoid it
+HostC * hostRef;
+
 static void stop(int) {
   // reset signal handlers to default
   signal(SIGTERM, SIG_DFL);
@@ -42,6 +45,11 @@ static void stop(int) {
 
   // write/flush output file if necessary
   std::cout << "Writing output.\n";
+  hostRef->flushBuffer();
+
+  // free network resources
+  // I think I can do it in the initialization method
+  hostRef->free_network();
 
   // exit directly from signal handler
   exit(0);
@@ -60,7 +68,8 @@ int main(int argc, char **argv) {
 
   hello();
 
-  HostC node = HostC(parser.id(), parser.configPath());
+  HostC node = HostC(parser.id(), parser.configPath(), parser.outputPath());
+  hostRef = &node;
 
   std::cout << std::endl;
 
@@ -79,7 +88,12 @@ int main(int argc, char **argv) {
   auto hosts = parser.hosts();
   for (auto &host : hosts) {
 
-    node.addHost(host.id, host.port, host.ip);
+    //node.addHost(host.id, host.port, host.ip);
+    node.addHost2(host.id, host.portReadable(), host.ipReadable());
+
+    if (host.id == parser.id()) {
+      node.initialize_network2(host.portReadable());
+    }
 
     std::cout << host.id << "\n";
     std::cout << "Human-readable IP: " << host.ipReadable() << "\n";
@@ -129,13 +143,16 @@ int main(int argc, char **argv) {
   // initialize network
   // do everything I can to save time
   
-  node.initialize_network();
+  //node.initialize_network();
   std::thread listener(&HostC::handleMessages, node);
 
   std::cout << "Waiting for all processes to finish initialization\n\n";
   coordinator.waitOnBarrier();
 
   std::cout << "Broadcasting messages...\n\n";
+  std::thread sender(&HostC::testSend, node);
+
+  std::this_thread::sleep_for(std::chrono::seconds(3));
 
   std::cout << "Signaling end of broadcasting messages\n\n";
   coordinator.finishedBroadcasting();
