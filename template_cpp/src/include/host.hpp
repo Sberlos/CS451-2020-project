@@ -180,7 +180,8 @@ class HostC {
       writeError("S: testSend");
       ssize_t s;
       std::string ss;
-      for (auto peer : addresses) {
+      //for (auto peer : addresses) {
+      for (auto peer : addresses2) {
         if (peer.first != id) {
           s = sendTrack2(peer.first, 1);
           ss = std::to_string(s);
@@ -302,11 +303,14 @@ class HostC {
       char buffer[20];
       bytesRcv = recvfrom(sockfd, buffer, 20, 0, reinterpret_cast<struct sockaddr *>(&their_addr), &addr_size);
       parseMessage(buffer, bytesRcv, &their_addr);
+      writeError(std::to_string(outBuffer.size()));
+      writeError(outBuffer.front());
     }
 
     void parseMessage(const char * buffer, const long int bytesRcv, const struct sockaddr_storage * from) {
       outBuffer.push_back(buffer);
       writeError("S:parsed message");
+      writeError(std::to_string(outBuffer.size()));
 
       // activate response mechanism
 
@@ -318,8 +322,12 @@ class HostC {
       std::ofstream outputFile(outPath);
       //outputFile.open(outPath);
       if (outputFile.is_open()) {
-        outputFile << "Test" << std::endl;
+        outputFile << "TestN" << std::endl;
+        outputFile << "buffer size: " << std::to_string(outBuffer.size()) << std::endl;
+        outputFile << "id: " << std::to_string(id) << std::endl;
+        outputFile << "size addresses: " << std::to_string(addresses2.size()) << std::endl;
         while (!outBuffer.empty()) {
+          writeError("I'm flushing");
           outputFile << "m:" << outBuffer.front() << std::endl;
           outBuffer.pop_front();
         }
