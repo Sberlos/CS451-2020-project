@@ -8,30 +8,6 @@
 #include "hello.h"
 #include <signal.h>
 
-/*
-int initializeNetwork() {
-  struct addrinfo hints, *res;
-  int sockfd;
-
-  // first, load up address structs with getaddrinfo():
-
-  memset(&hints, 0, sizeof hints);
-  hints.ai_family = AF_UNSPEC;  // use IPv4 or IPv6, whichever
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
-
-  getaddrinfo(NULL, "3490", &hints, &res);
-
-  // make a socket:
-
-  sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-
-  // bind it to the port we passed in to getaddrinfo():
-
-  bind(sockfd, res->ai_addr, res->ai_addrlen);
-}
-*/
-
 // terrible thing having a global but I don't know how to avoid it
 HostC * hostRef;
 
@@ -150,7 +126,7 @@ int main(int argc, char **argv) {
   coordinator.waitOnBarrier();
 
   std::cout << "Broadcasting messages...\n\n";
-  std::thread sender(&HostC::testSend, node);
+  std::thread sender(&HostC::startBroadcasting, node);
 
   std::this_thread::sleep_for(std::chrono::seconds(3));
 

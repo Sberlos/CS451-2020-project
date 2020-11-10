@@ -12,18 +12,18 @@ class HostC {
   //networking window (map as for each?)
   //queue for packets later of the one(s) missing
   //queue for messages to be delivered (?maybe needed for concurrency)
-  long unsigned int id;
+  unsigned long id;
   std::string ip; // maybe later we will use as another type
   //const char * port;
   short unsigned int port;
-  int toBroad; // number of messages to broadcast (coming from config)
+  unsigned long toBroad; // number of messages to broadcast (coming from config)
 
   std::string outPath;
   std::deque<const char *> outBuffer;
 
   // map of id -> address of all the known hosts
-  std::unordered_map<long unsigned int, sockaddr_in> addresses;
-  std::unordered_map<long unsigned int, addrinfo *> addresses2;
+  std::unordered_map<unsigned long int, sockaddr_in> addresses;
+  std::unordered_map<unsigned long int, addrinfo *> addresses2;
 
   // map of id -> set of expected messages (messages which I send and I expect
   // an ack back)
@@ -190,6 +190,37 @@ class HostC {
       }
     }
 
+    void bebBroadcast(const unsigned long message){
+      for (auto peer : addresses2) {
+          if (peer.first != id) {
+              sendTrack2(message, peer.first);
+          }
+      }
+    }
+
+    void startBroadcasting() {
+        for (unsigned long i = 1; i <= toBroad; i++) { // could cause problems the i++ with max int?
+            bebBroadcast(i);
+        }
+    }
+    // testSend2 before
+    void testSend2(){
+      writeError("S: bebBroadcast");
+      ssize_t s;
+      std::string ss;
+      //for (auto peer : addresses) {
+      for (int i = 0; i < 2; i++) {
+          writeError("S: sending:"+std::to_string(i));
+          for (auto peer : addresses2) {
+              if (peer.first != id) {
+                  s = sendTrack2(i, peer.first);
+                  ss = std::to_string(s);
+                  writeError("S: sent " + ss + "bytes");
+              }
+          }
+      }
+    }
+
     // Perfect link component
     // Send data and add the tracking to it if missing
     ssize_t sendTrack(unsigned long int m, unsigned long int toId) {
@@ -226,7 +257,10 @@ class HostC {
     }
 
     // TODO
+    // should also be responsible for writing to buffer when we have the guarantee that
+    // all correct processes have delivered (check the exact condition)
     void checker() {
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
       while (true) {
         // TODO change the value afterwards
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -247,6 +281,19 @@ class HostC {
       const char * mess = Smess.c_str();
       writeError(Smess);
       return sendTo(mess, to);
+    }
+
+    ssize_t sendAck2(unsigned long int m, unsigned long int toId) {
+      struct addrinfo * to = addresses2[toId];
+
+      std::string charMid = std::to_string(m);
+      std::string from = std::to_string(id);
+      std::string Smess = from + ",1," + charMid;
+      const char * mess = Smess.c_str();
+
+      writeError(Smess);
+
+      return sendTo2(mess, to);
     }
 
     // addHost add an host information to the map addresses
@@ -298,24 +345,67 @@ class HostC {
       */
 
       // singlethreaded for now
-      addr_size = sizeof their_addr;
-      long int bytesRcv;
-      char buffer[20];
-      bytesRcv = recvfrom(sockfd, buffer, 20, 0, reinterpret_cast<struct sockaddr *>(&their_addr), &addr_size);
-      parseMessage(buffer, bytesRcv, &their_addr);
-      writeError(std::to_string(outBuffer.size()));
-      writeError(outBuffer.front());
+      while (true) {
+          addr_size = sizeof their_addr;
+          long int bytesRcv;
+          char buffer[20];
+          bytesRcv = recvfrom(sockfd, buffer, 20, 0, reinterpret_cast<struct sockaddr *>(&their_addr), &addr_size);
+          parseMessage(buffer, bytesRcv, &their_addr);
+          writeError("buff size after parse in handle:" + std::to_string(outBuffer.size()));
+          writeError("front:" + std::string(outBuffer.front()));
+      }
     }
 
-    void parseMessage(const char * buffer, const long int bytesRcv, const struct sockaddr_storage * from) {
+    void parseMessage(const char * buffer, const long bytesRcv, const struct sockaddr_storage * from) {
+        // TODO fix (now it pushes the buffer)
       outBuffer.push_back(buffer);
       writeError("S:parsed message");
-      writeError(std::to_string(outBuffer.size()));
+      writeError("buff size after parse in parse:" + std::to_string(outBuffer.size()));
+      //flushBuffer2();
 
       // activate response mechanism
 
       // if ack: remove from the expected map and send fin
       // if new message: send ack
+      
+      unsigned long fromId;
+      unsigned long message;
+      int ack;
+      int parsedN;
+      if (std::sscanf(buffer,"%lu,%d,%lu", &fromId, &ack, &message) == 3) {
+          if (ack) {
+          // lock for reading
+          std::unordered_set<long unsigned int> s = expected[fromId];
+          //realease reading
+          s.erase(message);
+          //take write
+          expected[fromId] = s;
+          //release write
+          } else if (fromId == id) { // I was the original sender
+              sendAck2(message, fromId);
+              // do urb stuff
+          } else { // not an ack and not one of my messages
+              sendAck2(message, fromId);
+              // this is related to urb
+              // add to ack map
+            std::unordered_set<long unsigned int> s = forwardMap[fromId];
+            if (!(s.count(message) > 0)) {
+                s.insert(message);
+                bebBroadcast(message);
+            }
+          }
+      }
+    }
+
+    void flushBuffer2() {
+      std::ofstream outputFile(outPath.append("-internal"));
+      if (outputFile.is_open()) {
+        while (!outBuffer.empty()) {
+          outputFile << "m:" << outBuffer.front() << std::endl;
+          outBuffer.pop_front();
+        }
+        outputFile.close();
+      }
     }
 
     void flushBuffer() {
