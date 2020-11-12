@@ -120,15 +120,15 @@ int main(int argc, char **argv) {
   // do everything I can to save time
   
   //node.initialize_network();
-  std::thread listener(&HostC::handleMessages, node);
+  std::thread listener(&HostC::handleMessages, std::ref(node));
 
   std::cout << "Waiting for all processes to finish initialization\n\n";
   coordinator.waitOnBarrier();
 
   std::cout << "Broadcasting messages...\n\n";
-  std::thread sender(&HostC::startBroadcasting, node);
+  std::thread sender(&HostC::startBroadcasting, std::ref(node));
 
-  std::this_thread::sleep_for(std::chrono::seconds(3));
+  std::this_thread::sleep_for(std::chrono::seconds(6));
 
   std::cout << "Signaling end of broadcasting messages\n\n";
   coordinator.finishedBroadcasting();
