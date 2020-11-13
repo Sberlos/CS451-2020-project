@@ -56,14 +56,15 @@ class HostC {
 
   // networking logic data -> urb in reality with the second version(message -> set of processes)
   //std::unordered_map<long unsigned int, long unsigned int> ackMap; //for the moment I store only the last
-  std::unordered_map<unsigned long, std::unordered_set<unsigned long>> ackMap;
+  //std::unordered_map<unsigned long, std::unordered_set<unsigned long>> ackMap;
+  std::unordered_map<unsigned long, std::unordered_map<unsigned long, std::unordered_set<unsigned long>>> ackMap;
 
   //process -> messages delivered
   std::unordered_map<unsigned long, std::set<unsigned long>> delivered;
   // TODO change
   //std::unordered_map<int, int> lastDelivered;
 
-  std::unordered_map<unsigned long, std::deque<unsigned long>> past;
+  std::unordered_map<unsigned long, std::unordered_set<unsigned long>> past;
 
   // networking internals data
   struct addrinfo *servinfo;
@@ -170,7 +171,7 @@ class HostC {
       }
       // add the message that I just broadcasted to the past of myself
       std::unique_lock LockP(pastLock);
-      past[id].push_back(message);
+      past[id].insert(message);
     }
 
     void startBroadcasting() {
@@ -222,8 +223,9 @@ class HostC {
       std::shared_lock lockA(addessesLock);
       struct addrinfo * to = addresses2[toId];
       //const char * charM = convertIntMessage(m);
-      std::string sM = std::to_string(fromId).append(",0,").append(std::to_string(m));
-      //std::string sM = std::to_string(id).append(",").append(fromId).append(",0,").append(std::to_string(m)); //TODO implement
+      //std::string sM = std::to_string(fromId).append(",0,").append(std::to_string(m));
+      const std::string fromIdS = std::to_string(fromId);
+      std::string sM = std::to_string(id).append(",").append(fromIdS).append(",0,").append(std::to_string(m));
       const char * charM = sM.c_str();
       return sendTo2(charM, to);
     }
@@ -241,32 +243,39 @@ class HostC {
 
         // check if in the meantime some process failes therefore we have to check if we
         // previously completed the uniform messaging procedure, if yes deliver
-        for (auto s : ackMap) {
-            std::shared_lock lockAddr(addessesLock);
-            unsigned long addrSize = addresses2.size();
+        // TODO I have to remove the completed messages from the ackMap otherwise too much work 
+        std::shared_lock lockAddr(addessesLock);
+        unsigned long addrSize = addresses2.size();
 
-            std::shared_lock lockAck(ackLock); //remember to do this in the watcher
-            if (ackMap[message].size() == addrSize) { // all the addresses have rebroadcasted my message
+        std::shared_lock lockAck(ackLock);
+        for (auto i : ackMap) {
+          for (auto m : i.second) { // m = pair (message -> set)
+            //for (auto p : m.second) {
+
+              // all the addresses have rebroadcasted my message
+              if (m.second.size() == addrSize) {
                 std::unique_lock lockP(pastLock);
+                /*
                 past[fromId].erase(message);
                 urbDeliver(message, fromId);
-            }
+                */
+                past[i.first].erase(m.first);
+                urbDeliver(m.first, i.first);
+              }
+            //}
+          }
         }
       }
     }
 
-    // TODO
-    unsigned long int extractMessId(std::string m) {
-      return 0;
-    }
-
-    ssize_t sendAck2(unsigned long int m, unsigned long int toId) {
+    ssize_t sendAck2(unsigned long m, unsigned long toId, unsigned long originalS) {
       struct addrinfo * to = addresses2[toId];
 
       std::string charMid = std::to_string(m);
       std::string from = std::to_string(id);
-      std::string Smess = from.append(",1,").append(charMid);
-      //std::string Smess = from.append(",1,").append(charMid); //TODO implement new way
+      std::string strOriginal = std::to_string(originalS);
+      //std::string Smess = from.append(",1,").append(charMid);
+      std::string Smess = from.append(",").append(strOriginal).append(",1,").append(charMid); //TODO implement new way
       const char * mess = Smess.c_str();
 
       writeError(Smess);
@@ -333,13 +342,13 @@ class HostC {
       // if ack: remove from the expected map and send fin
       // if new message: send ack
       
-      //unsigned long senderId; //TODO uncomment
+      unsigned long senderId;
       unsigned long fromId;
       unsigned long message;
       int ack;
       int parsedN;
-      //if (std::sscanf(buffer,"%lu,%lu,%d,%lu", &fromId, &ack, &message) == 4) { //TODO
-      if (std::sscanf(buffer,"%lu,%d,%lu", &fromId, &ack, &message) == 3) {
+      if (std::sscanf(buffer,"%lu,%lu,%d,%lu", &senderId, &fromId, &ack, &message) == 4) {
+      //if (std::sscanf(buffer,"%lu,%d,%lu", &fromId, &ack, &message) == 3) {
           if (ack) {
             /*
             // lock for reading
@@ -355,11 +364,12 @@ class HostC {
             std::unique_lock unlock(expectedLock);
             */
             std::unique_lock lock(expectedLock);
-            long unsigned b = expected[fromId].count(message);
-            expected[fromId].erase(message); // does it work this way? test says yes
-            long unsigned a = expected[fromId].count(message);
+            long unsigned b = expected[senderId].count(message);
+            //expected[fromId].erase(message); // does it work this way? test says yes
+            expected[senderId].erase(message); // does it work this way? test says yes
+            long unsigned a = expected[senderId].count(message);
             //expectedLock.unlock();
-            if (a == b) {
+            if (a == b) { // debug code, remove
                 writeError("failed to erase");
             }
 
@@ -367,15 +377,15 @@ class HostC {
             std::shared_lock lockAddr(addessesLock);
             unsigned long addrSize = addresses2.size();
 
-            /* //TODO uncomment 
             std::unique_lock lockAck(ackLock); //remember to do this in the watcher
-            ackMap[message].insert(fromId);
-            if (ackMap[message].size() == addrSize) { // all the addresses have rebroadcasted my message
+            ackMap[fromId][message].insert(fromId);
+            if (ackMap[fromId][message].size() == addrSize) { // all the addresses have rebroadcasted my message
                 std::unique_lock lockP(pastLock);
                 past[fromId].erase(message);
+                std::unique_lock lockDel(deliveredLock);
+                delivered[fromId].insert(message); //TODO check if correct
                 urbDeliver(message, fromId);
             }
-            */
 
             // add to the set of ack
           } else if (fromId == id) { // I was the original sender
@@ -400,12 +410,12 @@ class HostC {
             }
             */
           } else { // not an ack and not one of my messages
-            sendAck2(message, fromId);
+            sendAck2(message, senderId, fromId);
 
               // this is related to urb
               // add to ack map
             std::shared_lock lock(forwardLock);
-            std::unordered_set<long unsigned int> s = forwardMap[fromId];
+            std::unordered_set<unsigned long> s = forwardMap[fromId];
             forwardLock.unlock(); // is this correct?
             if (!(s.count(message) > 0)) {
                 s.insert(message);
@@ -428,12 +438,15 @@ class HostC {
     void urbDeliver(unsigned long m, unsigned long id) {
       // fifo thing and then add to buffer?
 
+        /*
       std::shared_lock LockShD(deliveredLock);
       if (delivered[id].count(m) == 0) {
         std::deque<unsigned long> mPast = retrievePast(buffer);
         for (
 
+        */
     }
+    
 
     void flushBuffer2() {
       std::ofstream outputFile(outPath.append("-internal"));
@@ -479,11 +492,12 @@ class HostC {
       }
     }
 
+    // This could be avoided using the new field of the message (senderId)
     ssize_t sendAckMine(const unsigned long m, const sockaddr_storage * toAddr) {
       const struct sockaddr * to = reinterpret_cast<const sockaddr *>(toAddr);
       std::string charMid = std::to_string(m);
       std::string from = std::to_string(id);
-      std::string Smess = from.append(",1,").append(charMid);
+      std::string Smess = from.append(",").append(from).append("1,").append(charMid);
       const char * mess = Smess.c_str();
       writeError(Smess);
       return sendTo(mess, to);
