@@ -2,6 +2,7 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <set>
 #include <deque>
 #include <string>
 #include <fstream>
@@ -9,12 +10,13 @@
 #include <shared_mutex>
 #include <mutex>
 
-/*
-// from StackOverflow question [link] //TODO
-typedef std::shared_mutex Lock;
-typedef std::unique_lock<Lock> WriteLock;
-typedef std::shared_lock<Lock> ReadLock;
-*/
+/* PERFORMANCE considerations: 
+ * map -> vectors (as we use numbers without gaps as indices, stupid to hash...), the only problem
+ * is that we waste space with some cells when a process is considered failed (but this is not the
+ * case when performance is at test, therefore it's a viable strategy).
+ * if we keep maps we have to correct their size at the beginning based on the number of elements in
+ * addresses otherwise the structure will rehash to dinamically resize itself losing a lot of time.
+ */
 
 class HostC {
   //buffer
@@ -37,22 +39,31 @@ class HostC {
 
   // map of id -> set of expected messages (messages which I send and I expect
   // an ack back)
-  std::unordered_map<long unsigned int, std::unordered_set<long unsigned int>> expected;
+  //std::unordered_map<long unsigned int, std::unordered_set<long unsigned int>> expected;
 
   // map of id -> (message -> count) of expected messages (messages which 
   // I sent and I expect an ack back) for each host id.
   // Every id has a corresponding map of messages and count in order to consider
   // the receiver failed after a certain amount
-  //std::unordered_map<long unsigned int, std::unordered_map<long unsigned int, int>> expected;
+  std::unordered_map<long unsigned, std::unordered_map<long unsigned, unsigned>> expected;
+
+  // This is the maximum value of the number of retransmissions for a single message, after that
+  // number we consider the process failed
+  unsigned expectedTreshold = 5;
 
   //urb logic data (it uses the ackMap too for avoiding duplication)
-  std::unordered_map<long unsigned int, std::unordered_set<long unsigned int>> forwardMap;
+  std::unordered_map<long unsigned, std::unordered_set<long unsigned>> forwardMap;
 
-  // networking logic data
-  std::unordered_map<long unsigned int, long unsigned int> ackMap; //for the moment I store only the last
+  // networking logic data -> urb in reality with the second version(message -> set of processes)
+  //std::unordered_map<long unsigned int, long unsigned int> ackMap; //for the moment I store only the last
+  std::unordered_map<unsigned long, std::unordered_set<unsigned long>> ackMap;
 
+  //process -> messages delivered
+  std::unordered_map<unsigned long, std::set<unsigned long>> delivered;
   // TODO change
   //std::unordered_map<int, int> lastDelivered;
+
+  std::unordered_map<unsigned long, std::deque<unsigned long>> past;
 
   // networking internals data
   struct addrinfo *servinfo;
@@ -66,10 +77,12 @@ class HostC {
   mutable std::shared_mutex expectedLock;
   mutable std::shared_mutex forwardLock;
   mutable std::shared_mutex ackLock;
+  mutable std::shared_mutex deliveredLock;
+  mutable std::shared_mutex pastLock;
 
   public:
     HostC(long unsigned int p_id, std::string configPath, std::string outputPath) 
-      : id(p_id), port(), outPath(outputPath), outBuffer(), addresses(), addresses2(), expected(), forwardMap(), ackMap() {
+      : id(p_id), port(), outPath(outputPath), outBuffer(), addresses(), addresses2(), expected(), forwardMap(), ackMap(), delivered(), past() {
 
       // open config file for reading how many messages to broadcast
       std::ifstream configFile;
@@ -155,6 +168,9 @@ class HostC {
               sendTrack2(message, peer.first, fromId);
           }
       }
+      // add the message that I just broadcasted to the past of myself
+      std::unique_lock LockP(pastLock);
+      past[id].push_back(message);
     }
 
     void startBroadcasting() {
@@ -168,40 +184,46 @@ class HostC {
         bebBroadcast(i, id);
       }
     }
-    // testSend2 before
-    void testSend2(){
-      writeError("S: bebBroadcast");
-      ssize_t s;
-      std::string ss;
-      //for (auto peer : addresses) {
-      for (int i = 0; i < 2; i++) {
-          writeError("S: sending:"+std::to_string(i));
-          for (auto peer : addresses2) {
-              if (peer.first != id) {
-                  s = sendTrack2(i, peer.first, id);
-                  ss = std::to_string(s);
-                  writeError("S: sent " + ss + "bytes");
-              }
-          }
-      }
-    }
 
     // Perfect link component
     // Send data and add the tracking to it if missing
     ssize_t sendTrack2(const unsigned long m, const unsigned long toId, const unsigned long fromId) {
       writeError("S: starting sendTrack");
 
-      struct addrinfo * to = addresses2[toId];
-
+      /*
       //unsigned long int mID = extractMessId(m);
       // write in two steps to allow only read unless missing
       std::unordered_set<unsigned long> s = expected[toId];
+
       if (s.count(m) == 0) { //can I do !s.find(m) ?
         s.insert(m);
         expected[toId] = s;
+      } 
+      */
+
+      //std::unordered_map<long unsigned int, int> mE = expected[toId];
+      std::unique_lock lock(expectedLock);
+      unsigned vE = expected[toId][m];
+      /*
+      expected[toId][m]++; //does this work? every memory region is initialized? and the ++ does change the value underneath or not?
+      if (vE == expected[toId][m]) {
+          writeError("The update of expected didn't work");
       }
+      */
+      expected[toId][m] = ++vE;
+      //expectedLock.unlock();
+      if (vE > expectedTreshold) {
+          // remove process from correct -> addresses list
+          std::unique_lock lockA(addessesLock);
+          addresses2.erase(toId);
+          return 0;
+      }
+
+      std::shared_lock lockA(addessesLock);
+      struct addrinfo * to = addresses2[toId];
       //const char * charM = convertIntMessage(m);
       std::string sM = std::to_string(fromId).append(",0,").append(std::to_string(m));
+      //std::string sM = std::to_string(id).append(",").append(fromId).append(",0,").append(std::to_string(m)); //TODO implement
       const char * charM = sM.c_str();
       return sendTo2(charM, to);
     }
@@ -214,6 +236,22 @@ class HostC {
       while (true) {
         // TODO change the value afterwards
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        // resend messages
+        // TODO
+
+        // check if in the meantime some process failes therefore we have to check if we
+        // previously completed the uniform messaging procedure, if yes deliver
+        for (auto s : ackMap) {
+            std::shared_lock lockAddr(addessesLock);
+            unsigned long addrSize = addresses2.size();
+
+            std::shared_lock lockAck(ackLock); //remember to do this in the watcher
+            if (ackMap[message].size() == addrSize) { // all the addresses have rebroadcasted my message
+                std::unique_lock lockP(pastLock);
+                past[fromId].erase(message);
+                urbDeliver(message, fromId);
+            }
+        }
       }
     }
 
@@ -228,6 +266,7 @@ class HostC {
       std::string charMid = std::to_string(m);
       std::string from = std::to_string(id);
       std::string Smess = from.append(",1,").append(charMid);
+      //std::string Smess = from.append(",1,").append(charMid); //TODO implement new way
       const char * mess = Smess.c_str();
 
       writeError(Smess);
@@ -294,10 +333,12 @@ class HostC {
       // if ack: remove from the expected map and send fin
       // if new message: send ack
       
+      //unsigned long senderId; //TODO uncomment
       unsigned long fromId;
       unsigned long message;
       int ack;
       int parsedN;
+      //if (std::sscanf(buffer,"%lu,%lu,%d,%lu", &fromId, &ack, &message) == 4) { //TODO
       if (std::sscanf(buffer,"%lu,%d,%lu", &fromId, &ack, &message) == 3) {
           if (ack) {
             /*
@@ -321,21 +362,51 @@ class HostC {
             if (a == b) {
                 writeError("failed to erase");
             }
-            //release write
+
+            // extract the size of the correct addresses
+            std::shared_lock lockAddr(addessesLock);
+            unsigned long addrSize = addresses2.size();
+
+            /* //TODO uncomment 
+            std::unique_lock lockAck(ackLock); //remember to do this in the watcher
+            ackMap[message].insert(fromId);
+            if (ackMap[message].size() == addrSize) { // all the addresses have rebroadcasted my message
+                std::unique_lock lockP(pastLock);
+                past[fromId].erase(message);
+                urbDeliver(message, fromId);
+            }
+            */
+
+            // add to the set of ack
           } else if (fromId == id) { // I was the original sender
             /*
             std::shared_lock lock(forwardLock);
             if 
             */
             sendAckMine(message, from);
-              // do urb stuff
+
+            /* moved up
+            // do urb stuff
+            // extract the size of the correct addresses
+            std::shared_lock lockAddr(addessesLock);
+            unsigned long addrSize = addresses2.size();
+
+            std::unique_lock lockAck(ackLock); //remember to do this in the watcher
+            ackMap[message].insert(fromId);
+            if (ackMap[message].size() == addrSize) { // all the addresses have rebroadcasted my message
+                std::unique_lock lockP(pastLock);
+                past[fromId].erase(message);
+                urbDeliver(message, fromId);
+            }
+            */
           } else { // not an ack and not one of my messages
             sendAck2(message, fromId);
+
               // this is related to urb
               // add to ack map
             std::shared_lock lock(forwardLock);
             std::unordered_set<long unsigned int> s = forwardMap[fromId];
-            forwardLock.unlock();
+            forwardLock.unlock(); // is this correct?
             if (!(s.count(message) > 0)) {
                 s.insert(message);
                 //std::unique_lock lock(forwardLock);
@@ -343,9 +414,25 @@ class HostC {
                 forwardMap[fromId] = s;
                 //forwardLock.unlock();
                 bebBroadcast(message, fromId);
+            } else {
+                // add to delivered
+                std::unique_lock lockDel(deliveredLock);
+                delivered[fromId].insert(message);
+                // trigger urb delivery
+                urbDeliver(message, fromId);
             }
           }
       }
+    }
+
+    void urbDeliver(unsigned long m, unsigned long id) {
+      // fifo thing and then add to buffer?
+
+      std::shared_lock LockShD(deliveredLock);
+      if (delivered[id].count(m) == 0) {
+        std::deque<unsigned long> mPast = retrievePast(buffer);
+        for (
+
     }
 
     void flushBuffer2() {
@@ -368,16 +455,16 @@ class HostC {
         //outputFile << "id: " << std::to_string(id) << std::endl;
         //outputFile << "size addresses: " << std::to_string(addresses2.size()) << std::endl;
         while (!outBuffer.empty()) {
-          /*
-          writeError("I'm flushing");
+          //writeError("I'm flushing");
           outputFile << "m:" << outBuffer.front() << std::endl;
           outBuffer.pop_front();
-          */
+          /*
           outputFile << "iteration" << std::endl;
           for (unsigned i = 0; i < outBuffer.size(); i++) {
             outputFile << "at" << i << ":" << outBuffer.at(i) << std::endl;
           }
           outBuffer.pop_front();
+          */
         }
         outputFile.close();
       }
@@ -496,6 +583,24 @@ class HostC {
       const char * mess = Smess.c_str();
       writeError(Smess);
       return sendTo(mess, to);
+    }
+
+    // testSend2 before
+    void testSend2(){
+      writeError("S: bebBroadcast");
+      ssize_t s;
+      std::string ss;
+      //for (auto peer : addresses) {
+      for (int i = 0; i < 2; i++) {
+          writeError("S: sending:"+std::to_string(i));
+          for (auto peer : addresses2) {
+              if (peer.first != id) {
+                  s = sendTrack2(i, peer.first, id);
+                  ss = std::to_string(s);
+                  writeError("S: sent " + ss + "bytes");
+              }
+          }
+      }
     }
     */
 
