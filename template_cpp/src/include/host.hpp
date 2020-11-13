@@ -19,27 +19,17 @@
  */
 
 class HostC {
-  //buffer
-  //networking window (map as for each?)
-  //queue for packets later of the one(s) missing
-  //queue for messages to be delivered (?maybe needed for concurrency)
   unsigned long id;
   std::string ip; // maybe later we will use as another type
-  //const char * port;
   short unsigned int port;
   unsigned long toBroad; // number of messages to broadcast (coming from config)
 
   std::string outPath;
-  //std::deque<const char *> outBuffer;
   std::deque<std::string> outBuffer;
 
   // map of id -> address of all the known hosts
   std::unordered_map<unsigned long int, sockaddr_in> addresses;
   std::unordered_map<unsigned long int, addrinfo *> addresses2;
-
-  // map of id -> set of expected messages (messages which I send and I expect
-  // an ack back)
-  //std::unordered_map<long unsigned int, std::unordered_set<long unsigned int>> expected;
 
   // map of id -> (message -> count) of expected messages (messages which 
   // I sent and I expect an ack back) for each host id.
@@ -55,14 +45,10 @@ class HostC {
   std::unordered_map<long unsigned, std::unordered_set<long unsigned>> forwardMap;
 
   // networking logic data -> urb in reality with the second version(message -> set of processes)
-  //std::unordered_map<long unsigned int, long unsigned int> ackMap; //for the moment I store only the last
-  //std::unordered_map<unsigned long, std::unordered_set<unsigned long>> ackMap;
   std::unordered_map<unsigned long, std::unordered_map<unsigned long, std::unordered_set<unsigned long>>> ackMap;
 
   //process -> messages delivered
   std::unordered_map<unsigned long, std::set<unsigned long>> delivered;
-  // TODO change
-  //std::unordered_map<int, int> lastDelivered;
 
   std::unordered_map<unsigned long, std::unordered_set<unsigned long>> past;
 
@@ -116,9 +102,6 @@ class HostC {
 
       writeError(convertIntMessageS(myPort));
 
-      // leave null as address for now -> localhost
-      // if I want to specify the ip I should remove the AI_PASSIVE from hints
-      // and substitute NULL with my ip
       if ((status = getaddrinfo(NULL, convertIntMessageS(myPort), &hints, &servinfo)) != 0) {
             fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
             writeError("Error while initializing network");
@@ -175,12 +158,6 @@ class HostC {
     }
 
     void startBroadcasting() {
-      /*
-      std::shared_lock lock(forwardLock);
-      std::unordered_map<unsigned long, unsigned long> s = forwardMap[id];
-      std::shared_lock unlock(forwardLock);
-      s.insert(
-      */
       for (unsigned long i = 1; i <= toBroad; i++) { // could cause problems the i++ with max int?
         bebBroadcast(i, id);
       }
@@ -191,26 +168,9 @@ class HostC {
     ssize_t sendTrack2(const unsigned long m, const unsigned long toId, const unsigned long fromId) {
       writeError("S: starting sendTrack");
 
-      /*
-      //unsigned long int mID = extractMessId(m);
-      // write in two steps to allow only read unless missing
-      std::unordered_set<unsigned long> s = expected[toId];
-
-      if (s.count(m) == 0) { //can I do !s.find(m) ?
-        s.insert(m);
-        expected[toId] = s;
-      } 
-      */
-
       //std::unordered_map<long unsigned int, int> mE = expected[toId];
       std::unique_lock lock(expectedLock);
       unsigned vE = expected[toId][m];
-      /*
-      expected[toId][m]++; //does this work? every memory region is initialized? and the ++ does change the value underneath or not?
-      if (vE == expected[toId][m]) {
-          writeError("The update of expected didn't work");
-      }
-      */
       expected[toId][m] = ++vE;
       //expectedLock.unlock();
       if (vE > expectedTreshold) {
@@ -226,8 +186,19 @@ class HostC {
       //std::string sM = std::to_string(fromId).append(",0,").append(std::to_string(m));
       const std::string fromIdS = std::to_string(fromId);
       std::string sM = std::to_string(id).append(",").append(fromIdS).append(",0,").append(std::to_string(m));
+      // append past
+      sM = appendPast(sM, fromId);
       const char * charM = sM.c_str();
       return sendTo2(charM, to);
+    }
+
+    std::string appendPast(std::string mS, unsigned long pId) {
+      std::shared_lock pSLock(pastLock);
+      for (unsigned long m : past[pId]) {
+        mS.append(";").append(std::to_string(m));
+      }
+
+      return mS;
     }
 
     // TODO
@@ -240,6 +211,17 @@ class HostC {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         // resend messages
         // TODO
+        /*
+        for (auto m : expected) {
+          for (v : m.second) {
+            if (v.second > expectedTreshold) {
+                // remove from addresses
+            } else {
+              //sendTrack2(v.first, m.first, );
+            }
+          }
+        }
+        */
 
         // check if in the meantime some process failes therefore we have to check if we
         // previously completed the uniform messaging procedure, if yes deliver
@@ -255,12 +237,8 @@ class HostC {
               // all the addresses have rebroadcasted my message
               if (m.second.size() == addrSize) {
                 std::unique_lock lockP(pastLock);
-                /*
-                past[fromId].erase(message);
-                urbDeliver(message, fromId);
-                */
                 past[i.first].erase(m.first);
-                urbDeliver(m.first, i.first);
+                urbDeliver(m.first, i.first, std::string(""));
               }
             //}
           }
@@ -303,7 +281,7 @@ class HostC {
         return;
       }
 
-      addresses2[hId] = si; // will it live?
+      addresses2[hId] = si;
     }
 
     // listen will listen for incoming connections
@@ -311,12 +289,6 @@ class HostC {
       writeError("S: Start handling");
       struct sockaddr_storage their_addr;
       socklen_t addr_size;
-
-      /*
-      listen(sockfd, 10); // set it to 10 for now
-      addr_size = sizeof their_addr;
-      accept_fd = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);
-      */
 
       // singlethreaded for now
       while (true) {
@@ -331,16 +303,8 @@ class HostC {
     }
 
     void parseMessage(const char * buffer, const long bytesRcv, const struct sockaddr_storage * from) {
-        // TODO fix (now it pushes the buffer)
-      outBuffer.push_back(std::string(buffer));
       writeError("S:parsed message = " + std::string(buffer));
       writeError("buff size after parse in parse:" + std::to_string(outBuffer.size()));
-      //flushBuffer2();
-
-      // activate response mechanism
-
-      // if ack: remove from the expected map and send fin
-      // if new message: send ack
       
       unsigned long senderId;
       unsigned long fromId;
@@ -348,21 +312,7 @@ class HostC {
       int ack;
       int parsedN;
       if (std::sscanf(buffer,"%lu,%lu,%d,%lu", &senderId, &fromId, &ack, &message) == 4) {
-      //if (std::sscanf(buffer,"%lu,%d,%lu", &fromId, &ack, &message) == 3) {
           if (ack) {
-            /*
-            // lock for reading
-            std::shared_lock lock(expectedLock);
-            std::unordered_set<long unsigned int> s = expected[fromId];
-            std::shared_lock unlock(expectedLock); //should I do it?
-            //realease reading
-            s.erase(message);
-            //take write
-            std::unique_lock lock(expectedLock);
-            expected[fromId] = s;
-            //release write
-            std::unique_lock unlock(expectedLock);
-            */
             std::unique_lock lock(expectedLock);
             long unsigned b = expected[senderId].count(message);
             //expected[fromId].erase(message); // does it work this way? test says yes
@@ -384,15 +334,11 @@ class HostC {
                 past[fromId].erase(message);
                 std::unique_lock lockDel(deliveredLock);
                 delivered[fromId].insert(message); //TODO check if correct
-                urbDeliver(message, fromId);
+                urbDeliver(message, fromId, std::string(buffer));
             }
 
             // add to the set of ack
           } else if (fromId == id) { // I was the original sender
-            /*
-            std::shared_lock lock(forwardLock);
-            if 
-            */
             sendAckMine(message, from);
 
             /* moved up
@@ -424,6 +370,8 @@ class HostC {
                 forwardMap[fromId] = s;
                 //forwardLock.unlock();
                 bebBroadcast(message, fromId);
+            }
+            /*
             } else {
                 // add to delivered
                 std::unique_lock lockDel(deliveredLock);
@@ -431,22 +379,55 @@ class HostC {
                 // trigger urb delivery
                 urbDeliver(message, fromId);
             }
+            */
           }
       }
     }
 
-    void urbDeliver(unsigned long m, unsigned long id) {
+    void urbDeliver(const unsigned long m, const unsigned long sId, const std::string buffer) {
       // fifo thing and then add to buffer?
 
-        /*
       std::shared_lock LockShD(deliveredLock);
-      if (delivered[id].count(m) == 0) {
-        std::deque<unsigned long> mPast = retrievePast(buffer);
-        for (
-
-        */
+      if (delivered[sId].count(m) == 0) {
+        if (buffer.size() > 8) { // if there is a chance of a past in the buffer
+          std::vector<unsigned long> mPast = retrievePast(buffer);
+          for (auto v : mPast) {
+            if (delivered.count(v) == 0) {
+              std::unique_lock outL(outBufferLock);
+              //outBuffer.push_back(v);
+              outBuffer.push_back(std::string("d ").append(std::to_string(sId)).append(" ").append(std::to_string(v)));
+              std::unique_lock LockUhD(deliveredLock);
+              delivered[sId].insert(v);
+              std::unique_lock LockPast(pastLock);
+              past[sId].insert(v); // not sure at all TODO check
+            }
+          }
+        }
+      }
+      std::unique_lock outL(outBufferLock);
+      if (sId == id) {
+        outBuffer.push_back(std::string("b ").append(std::to_string(m)));
+      } else {
+        outBuffer.push_back(std::string("d ").append(std::to_string(sId)).append(" ").append(std::to_string(m)));
+      }
+      std::unique_lock LockUhD(deliveredLock);
+      delivered[sId].insert(m);
+      std::unique_lock LockPast(pastLock);
+      past[sId].insert(m); // not sure at all TODO check
     }
     
+    std::vector<unsigned long> retrievePast(const std::string buffer) {
+      unsigned long start = 0;
+      unsigned long end = buffer.find(";");
+      std::vector<unsigned long> pastV;
+      while (end != std::string::npos) {
+        pastV.push_back(std::stoul(buffer.substr(start, end - start)));
+        start = end + 1;
+        end = buffer.find(";", start);
+      }
+      pastV.push_back(std::stoul(buffer.substr(start, end)));
+      return pastV;
+    }
 
     void flushBuffer2() {
       std::ofstream outputFile(outPath.append("-internal"));
@@ -461,23 +442,10 @@ class HostC {
 
     void flushBuffer() {
       std::ofstream outputFile(outPath);
-      //outputFile.open(outPath);
       if (outputFile.is_open()) {
-        //outputFile << "TestN" << std::endl;
-        outputFile << "buffer size: " << std::to_string(outBuffer.size()) << std::endl;
-        //outputFile << "id: " << std::to_string(id) << std::endl;
-        //outputFile << "size addresses: " << std::to_string(addresses2.size()) << std::endl;
         while (!outBuffer.empty()) {
-          //writeError("I'm flushing");
-          outputFile << "m:" << outBuffer.front() << std::endl;
+          outputFile << outBuffer.front() << std::endl;
           outBuffer.pop_front();
-          /*
-          outputFile << "iteration" << std::endl;
-          for (unsigned i = 0; i < outBuffer.size(); i++) {
-            outputFile << "at" << i << ":" << outBuffer.at(i) << std::endl;
-          }
-          outBuffer.pop_front();
-          */
         }
         outputFile.close();
       }
@@ -510,112 +478,4 @@ class HostC {
       writeError(phrase.append(mess));
       return sendto(sockfd, m, strlen(m), 0, to, sizeof *to); //htonl or htons?
     }
-
-    /* code not used anymore - to delete
-    // addHost add an host information to the map addresses
-    void addHost(long unsigned int hId, unsigned short int hPort, in_addr_t hIp) {
-      struct in_addr hAddr;
-      hAddr.s_addr = hIp;
-      struct sockaddr_in hSocket;
-      hSocket.sin_family = AF_INET; //only ipv4 for the moment
-      hSocket.sin_port = hPort;
-      hSocket.sin_addr = hAddr;
-
-      addresses[hId] = hSocket; // is it correct?
-      //addresses.insert({hId, hSocket});
-    }
-
-    void initialize_network() {
-      int status;
-      struct addrinfo hints;
-
-      // first, load up address structs with getaddrinfo():
-
-      memset(&hints, 0, sizeof hints);
-      hints.ai_family = AF_UNSPEC;  // use IPv4 or IPv6, whichever
-      hints.ai_socktype = SOCK_DGRAM; //use UDP
-      hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
-
-      port = addresses[id].sin_port;
-
-      writeError(convertIntMessage(port));
-      // leave null as address for now -> localhost
-      // if I want to specify the ip I should remove the AI_PASSIVE from hints
-      // and substitute NULL with my ip
-      if ((status = getaddrinfo(NULL, convertIntMessage(port), &hints, &servinfo)) != 0) {
-            fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
-            writeError("Error while initializing network");
-            exit(1); //exit or retry?
-      }
-
-      // make a socket:
-
-      sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
-
-      // bind it to the port we passed in to getaddrinfo():
-
-      bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen);
-    }
-
-    // testSend is a dummy method for debugging purposes
-    void testSend(){
-      writeError("S: testSend");
-      ssize_t s;
-      std::string ss;
-      //for (auto peer : addresses) {
-      for (auto peer : addresses2) {
-        if (peer.first != id) {
-          s = sendTrack2(peer.first, 1, id); // this is the old one wrong, not used anymore
-          ss = std::to_string(s);
-          writeError("S: sent " + ss + "bytes");
-        }
-      }
-    }
-
-    // Perfect link component
-    // Send data and add the tracking to it if missing
-    ssize_t sendTrack(unsigned long int m, unsigned long int toId) {
-      writeError("S: starting sendTrack");
-
-      struct sockaddr * to = reinterpret_cast<sockaddr *>(&(addresses[toId]));
-      //unsigned long int mID = extractMessId(m);
-      // write in two steps to allow only read unless missing
-      std::unordered_set<unsigned long int> s = expected[toId];
-      if (s.count(m) == 0) { //can I do !s.find(m) ?
-        s.insert(m);
-        expected[toId] = s;
-      }
-      const char * charM = convertIntMessage(m);
-      return sendTo(charM, to);
-    }
-
-    ssize_t sendAck(unsigned long int m, unsigned long int toId) {
-      struct sockaddr * to = reinterpret_cast<sockaddr *>(&(addresses[toId]));
-      std::string charMid = std::to_string(m);
-      std::string from = std::to_string(id);
-      std::string Smess = from + ",1," + charMid;
-      const char * mess = Smess.c_str();
-      writeError(Smess);
-      return sendTo(mess, to);
-    }
-
-    // testSend2 before
-    void testSend2(){
-      writeError("S: bebBroadcast");
-      ssize_t s;
-      std::string ss;
-      //for (auto peer : addresses) {
-      for (int i = 0; i < 2; i++) {
-          writeError("S: sending:"+std::to_string(i));
-          for (auto peer : addresses2) {
-              if (peer.first != id) {
-                  s = sendTrack2(i, peer.first, id);
-                  ss = std::to_string(s);
-                  writeError("S: sent " + ss + "bytes");
-              }
-          }
-      }
-    }
-    */
-
 };
