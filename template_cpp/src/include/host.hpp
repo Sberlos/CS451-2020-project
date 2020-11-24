@@ -89,7 +89,7 @@ class HostC {
       errorFile = errorCore.append(idS);
     }
 
-    void initialize_network2(unsigned short int myPort) {
+    void initialize_network2(unsigned short myPort) {
       int status;
       struct addrinfo hints;
 
@@ -100,7 +100,9 @@ class HostC {
       hints.ai_socktype = SOCK_DGRAM; //use UDP
       hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
 
-      writeError(convertIntMessageS(myPort));
+      //writeError(convertIntMessageS(myPort));
+      int mP = myPort;
+      writeError(std::to_string(mP));
 
       if ((status = getaddrinfo(NULL, convertIntMessageS(myPort), &hints, &servinfo)) != 0) {
             fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
@@ -121,7 +123,7 @@ class HostC {
       freeaddrinfo(servinfo);
     }
 
-    const char * convertIntMessage(unsigned long int m) {
+    const char * convertIntMessage(unsigned long m) {
       std::string sM = std::to_string(m);
       char const *cM = sM.c_str();
       return cM;
@@ -261,7 +263,7 @@ class HostC {
       return sendTo2(mess, to);
     }
 
-    void addHost2(long unsigned int hId, unsigned short int hPort, std::string hIp) {
+    void addHost2(unsigned long hId, unsigned short hPort, std::string hIp) {
       int status;
       //struct addrinfo hints, *si;
       struct addrinfo hints;
@@ -276,7 +278,8 @@ class HostC {
       // leave null as address for now -> localhost
       // if I want to specify the ip I should remove the AI_PASSIVE from hints
       // and substitute NULL with my ip
-      if ((status = getaddrinfo(hIp.c_str(), convertIntMessageS(hPort), &hints, &si)) != 0) {
+      status = getaddrinfo(hIp.c_str(), convertIntMessageS(hPort), &hints, &si);
+      if (status != 0) {
         writeError("Could not create addrinfo for host");
         return;
       }
@@ -297,8 +300,21 @@ class HostC {
           char buffer[20];
           bytesRcv = recvfrom(sockfd, buffer, 20, 0, reinterpret_cast<struct sockaddr *>(&their_addr), &addr_size);
           parseMessage(buffer, bytesRcv, &their_addr);
-          writeError("buff size after parse in handle:" + std::to_string(outBuffer.size()));
-          writeError("front:" + std::string(outBuffer.front()));
+          //writeError("buff size after parse in handle:" + std::to_string(outBuffer.size()));
+          // I do explicitly to see if avoid some reports from valgrind
+          unsigned long lenOut = outBuffer.size();
+          std::string left = "buff size after parse in handle:";
+          std::string right = std::to_string(lenOut);
+          std::string sum = left.append(right);
+          writeError(sum);
+
+          if (outBuffer.size() > 0) {
+            std::string left2 = "front:";
+            std::string right2 = outBuffer.front();
+            std::string sum2 = left2.append(right2);
+            writeError(sum2);
+          }
+          //writeError("front:" + std::string(outBuffer.front()));
       }
     }
 

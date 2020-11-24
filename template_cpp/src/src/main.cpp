@@ -16,7 +16,7 @@ static void stop(int) {
   signal(SIGTERM, SIG_DFL);
   signal(SIGINT, SIG_DFL);
 
-  // immediately stop network packet processing
+// immediately stop network packet processing
   std::cout << "Immediately stopping network packet processing.\n";
 
   // write/flush output file if necessary
@@ -26,6 +26,8 @@ static void stop(int) {
   // free network resources
   // I think I can do it in the initialization method
   hostRef->free_network();
+
+  delete hostRef;
 
   // exit directly from signal handler
   exit(0);
@@ -44,8 +46,12 @@ int main(int argc, char **argv) {
 
   hello();
 
+  /*
   HostC node = HostC(parser.id(), parser.configPath(), parser.outputPath());
   hostRef = &node;
+  */
+  HostC *node = new HostC(parser.id(), parser.configPath(), parser.outputPath());
+  hostRef = node;
 
   std::cout << std::endl;
 
@@ -65,10 +71,12 @@ int main(int argc, char **argv) {
   for (auto &host : hosts) {
 
     //node.addHost(host.id, host.port, host.ip);
-    node.addHost2(host.id, host.portReadable(), host.ipReadable());
+    //node.addHost2(host.id, host.portReadable(), host.ipReadable());
+    node->addHost2(host.id, host.portReadable(), host.ipReadable());
 
     if (host.id == parser.id()) {
-      node.initialize_network2(host.portReadable());
+      //node.initialize_network2(host.portReadable());
+      node->initialize_network2(host.portReadable());
     }
 
     std::cout << host.id << "\n";
@@ -120,15 +128,18 @@ int main(int argc, char **argv) {
   // do everything I can to save time
   
   //node.initialize_network();
-  std::thread listener(&HostC::handleMessages, std::ref(node));
+  //std::thread listener(&HostC::handleMessages, std::ref(node));
+  std::thread listener(&HostC::handleMessages, node);
 
   std::cout << "Waiting for all processes to finish initialization\n\n";
   coordinator.waitOnBarrier();
 
   std::cout << "Broadcasting messages...\n\n";
-  std::thread sender(&HostC::startBroadcasting, std::ref(node));
+  std::thread sender(&HostC::startBroadcasting, node);
 
-  std::this_thread::sleep_for(std::chrono::seconds(6));
+  //std::this_thread::sleep_for(std::chrono::seconds(6));
+  // change to join the sender
+  sender.join();
 
   std::cout << "Signaling end of broadcasting messages\n\n";
   coordinator.finishedBroadcasting();
