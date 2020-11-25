@@ -102,11 +102,11 @@ class HostC {
 
       //writeError(convertIntMessageS(myPort));
       int mP = myPort;
-      writeError(std::to_string(mP));
+      //writeError(std::to_string(mP));
 
       if ((status = getaddrinfo(NULL, convertIntMessageS(myPort), &hints, &servinfo)) != 0) {
             fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
-            writeError("Error while initializing network");
+            //writeError("Error while initializing network");
             exit(1); //exit or retry?
       }
 
@@ -139,7 +139,7 @@ class HostC {
     ssize_t sendTo2(const char * m, const struct addrinfo *to) {
       std::string mess = std::string(m);
       std::string phrase = "sendTo message: ";
-      writeError(phrase.append(mess));
+      //writeError(phrase.append(mess));
       //const void * convM = convertIntMessage(m);
       //const char * convM = m.c_str();
 
@@ -150,7 +150,7 @@ class HostC {
     void bebBroadcast(const unsigned long message, const unsigned long fromId){
       for (auto peer : addresses2) {
           if (peer.first != id) {
-              writeError(std::string("peer id:").append(std::to_string(peer.first)));
+              //writeError(std::string("peer id:").append(std::to_string(peer.first)));
               sendTrack2(message, peer.first, fromId);
           }
       }
@@ -168,7 +168,7 @@ class HostC {
     // Perfect link component
     // Send data and add the tracking to it if missing
     ssize_t sendTrack2(const unsigned long m, const unsigned long toId, const unsigned long fromId) {
-      writeError("S: starting sendTrack");
+      //writeError("S: starting sendTrack");
 
       //std::unordered_map<long unsigned int, int> mE = expected[toId];
       std::unique_lock lock(expectedLock);
@@ -258,7 +258,7 @@ class HostC {
       std::string Smess = from.append(",").append(strOriginal).append(",1,").append(charMid); //TODO implement new way
       const char * mess = Smess.c_str();
 
-      writeError(Smess);
+      //writeError(Smess);
 
       return sendTo2(mess, to);
     }
@@ -280,7 +280,7 @@ class HostC {
       // and substitute NULL with my ip
       status = getaddrinfo(hIp.c_str(), convertIntMessageS(hPort), &hints, &si);
       if (status != 0) {
-        writeError("Could not create addrinfo for host");
+        //writeError("Could not create addrinfo for host");
         return;
       }
 
@@ -289,7 +289,7 @@ class HostC {
 
     // listen will listen for incoming connections
     void handleMessages() {
-      writeError("S: Start handling");
+      //writeError("S: Start handling");
       struct sockaddr_storage their_addr;
       socklen_t addr_size;
 
@@ -302,6 +302,7 @@ class HostC {
           parseMessage(buffer, bytesRcv, &their_addr);
           //writeError("buff size after parse in handle:" + std::to_string(outBuffer.size()));
           // I do explicitly to see if avoid some reports from valgrind
+          /*
           unsigned long lenOut = outBuffer.size();
           std::string left = "buff size after parse in handle:";
           std::string right = std::to_string(lenOut);
@@ -315,12 +316,15 @@ class HostC {
             writeError(sum2);
           }
           //writeError("front:" + std::string(outBuffer.front()));
+          */
       }
     }
 
     void parseMessage(const char * buffer, const long bytesRcv, const struct sockaddr_storage * from) {
+      /*
       writeError("S:parsed message = " + std::string(buffer));
       writeError("buff size after parse in parse:" + std::to_string(outBuffer.size()));
+      */
       
       unsigned long senderId;
       unsigned long fromId;
@@ -336,7 +340,7 @@ class HostC {
             long unsigned a = expected[senderId].count(message);
             //expectedLock.unlock();
             if (a == b) { // debug code, remove
-                writeError("failed to erase");
+                //writeError("failed to erase");
             }
 
             // extract the size of the correct addresses
@@ -483,15 +487,17 @@ class HostC {
       std::string from = std::to_string(id);
       std::string Smess = from.append(",").append(from).append("1,").append(charMid);
       const char * mess = Smess.c_str();
-      writeError(Smess);
+      //writeError(Smess);
       return sendTo(mess, to);
     }
 
     // perfect link component
     ssize_t sendTo(const char * m, const struct sockaddr *to) {
+      /*
       std::string mess = std::string(m);
       std::string phrase = "sendTo message: ";
       writeError(phrase.append(mess));
+      */
       return sendto(sockfd, m, strlen(m), 0, to, sizeof *to); //htonl or htons?
     }
 };
