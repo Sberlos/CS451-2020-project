@@ -21,24 +21,29 @@
 class HostC {
   unsigned long id;
   std::string ip; // maybe later we will use as another type
-  short unsigned int port;
+  unsigned short port;
   unsigned long toBroad; // number of messages to broadcast (coming from config)
 
   std::string outPath;
   std::deque<std::string> outBuffer;
 
   // map of id -> address of all the known hosts
-  std::unordered_map<unsigned long int, sockaddr_in> addresses;
-  std::unordered_map<unsigned long int, addrinfo *> addresses2;
+  std::unordered_map<unsigned long, sockaddr_in> addresses;
+  std::unordered_map<unsigned long, addrinfo *> addresses2;
 
   // map of id -> (message -> count) of expected messages (messages which 
   // I sent and I expect an ack back) for each host id.
   // Every id has a corresponding map of messages and count in order to consider
   // the receiver failed after a certain amount
-  std::unordered_map<long unsigned, std::unordered_map<long unsigned, unsigned>> expected;
+  //std::unordered_map<long unsigned, std::unordered_map<long unsigned, unsigned>> expected;
+  // message to toId, from fromId, message m and count c. Set the counter:
+  // expected[toId][fromId][m] = c
+  //std::vector<std::vector<std::vector<unsigned>>> expected;
+  // with a map it would be
+  std::unordered_map<long unsigned, std::unordered_map<long unsigned, std::unordered_map<long unsigned, unsigned>>> expected;
 
-  // This is the maximum value of the number of retransmissions for a single message, after that
-  // number we consider the process failed
+  // This is the maximum value of the number of retransmissions for a single message,
+  // after that number we consider the process failed
   unsigned expectedTreshold = 5;
 
   //urb logic data (it uses the ackMap too for avoiding duplication)
@@ -172,8 +177,8 @@ class HostC {
 
       //std::unordered_map<long unsigned int, int> mE = expected[toId];
       std::unique_lock lock(expectedLock);
-      unsigned vE = expected[toId][m];
-      expected[toId][m] = ++vE;
+      unsigned vE = expected[toId][fromId][m];
+      expected[toId][fromId][m] = ++vE;
       //expectedLock.unlock();
       if (vE > expectedTreshold) {
           // remove process from correct -> addresses list
@@ -207,23 +212,25 @@ class HostC {
     // should also be responsible for writing to buffer when we have the guarantee that
     // all correct processes have delivered (check the exact condition)
     void checker() {
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
       while (true) {
         // TODO change the value afterwards
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        // resend messages
-        // TODO
-        /*
-        for (auto m : expected) {
-          for (v : m.second) {
-            if (v.second > expectedTreshold) {
-                // remove from addresses
-            } else {
-              //sendTrack2(v.first, m.first, );
+
+        for (auto id_MapFrom : expected) {
+          for (auto from_m : id_MapFrom.second) {
+            for (auto m_count : from_m.second) {
+              // this is done in sendTrack2
+              /*
+              if (m_count.second > expectedTreshold) {
+                  // remove from addresses
+              } else {
+                sendTrack2(m_count.first, id_MapFrom.first, from_m.first);
+              }
+              */
+              sendTrack2(m_count.first, id_MapFrom.first, from_m.first);
             }
           }
         }
-        */
 
         // check if in the meantime some process failes therefore we have to check if we
         // previously completed the uniform messaging procedure, if yes deliver
@@ -334,14 +341,16 @@ class HostC {
       if (std::sscanf(buffer,"%lu,%lu,%d,%lu", &senderId, &fromId, &ack, &message) == 4) {
           if (ack) {
             std::unique_lock lock(expectedLock);
-            long unsigned b = expected[senderId].count(message);
+            //long unsigned b = expected[senderId][fromId].count(message);
             //expected[fromId].erase(message); // does it work this way? test says yes
-            expected[senderId].erase(message); // does it work this way? test says yes
-            long unsigned a = expected[senderId].count(message);
+            expected[senderId][fromId].erase(message); // does it work this way? test says yes
+            //long unsigned a = expected[senderId].count(message);
             //expectedLock.unlock();
+            /*
             if (a == b) { // debug code, remove
                 //writeError("failed to erase");
             }
+            */
 
             // extract the size of the correct addresses
             std::shared_lock lockAddr(addessesLock);

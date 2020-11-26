@@ -137,9 +137,15 @@ int main(int argc, char **argv) {
   std::cout << "Broadcasting messages...\n\n";
   std::thread sender(&HostC::startBroadcasting, node);
 
-  //std::this_thread::sleep_for(std::chrono::seconds(6));
-  // change to join the sender
   sender.join();
+
+  // Start to check only after the sender has broadcasted all the messages
+  // This is for two reasons:
+  // 1) I am already sending at max rate, no sense to add others things
+  // 2) Doesn't make much sense to check for missing packets while I have not yet sent
+  // everything
+
+  std::thread checker(&HostC::checker, node);
 
   std::cout << "Signaling end of broadcasting messages\n\n";
   coordinator.finishedBroadcasting();
