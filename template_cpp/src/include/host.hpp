@@ -20,8 +20,7 @@
 
 class HostC {
   unsigned long id;
-  std::string ip; // maybe later we will use as another type
-  unsigned short port;
+  //unsigned short port; // not used
   unsigned long toBroad; // number of messages to broadcast (coming from config)
 
   std::string outPath;
@@ -74,7 +73,7 @@ class HostC {
 
   public:
     HostC(long unsigned int p_id, std::string configPath, std::string outputPath) 
-      : id(p_id), port(), outPath(outputPath), outBuffer(), addresses(), addresses2(), expected(), forwardMap(), ackMap(), delivered(), past() {
+      : id(p_id), outPath(outputPath), outBuffer(), addresses(), addresses2(), expected(), forwardMap(), ackMap(), delivered(), past() {
 
       // open config file for reading how many messages to broadcast
       std::ifstream configFile;
@@ -108,8 +107,11 @@ class HostC {
       //writeError(convertIntMessageS(myPort));
       int mP = myPort;
       //writeError(std::to_string(mP));
+      unsigned myPortU = myPort;
+      const char * myPortC = std::to_string(myPortU).c_str();
 
-      if ((status = getaddrinfo(NULL, convertIntMessageS(myPort), &hints, &servinfo)) != 0) {
+      //if ((status = getaddrinfo(NULL, convertIntMessageS(myPort), &hints, &servinfo)) != 0) {
+      if ((status = getaddrinfo(NULL, myPortC, &hints, &servinfo)) != 0) {
             fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
             //writeError("Error while initializing network");
             exit(1); //exit or retry?
@@ -122,10 +124,21 @@ class HostC {
       // bind it to the port we passed in to getaddrinfo():
 
       bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen);
+
+      // I can already do it here
+      freeaddrinfo(servinfo);
     }
 
     void free_network() {
-      freeaddrinfo(servinfo);
+      // Already done above (initialization method)
+      //freeaddrinfo(servinfo);
+
+      // free the hosts addresses
+      for (auto s : addresses2) {
+          freeaddrinfo(s.second);
+          //delete s.second;
+      }
+
     }
 
     const char * convertIntMessage(unsigned long m) {
@@ -167,6 +180,11 @@ class HostC {
     void startBroadcasting() {
       for (unsigned long i = 1; i <= toBroad; i++) { // could cause problems the i++ with max int?
         bebBroadcast(i, id);
+
+        //add myself in the ack
+        // TODO check if correct
+        std::unique_lock LockA(ackLock);
+        ackMap[id][i].insert(id);
       }
     }
 
@@ -183,6 +201,8 @@ class HostC {
       if (vE > expectedTreshold) {
           // remove process from correct -> addresses list
           std::unique_lock lockA(addessesLock);
+          // I should also free the addrinfo
+          freeaddrinfo(addresses2[toId]);
           addresses2.erase(toId);
           return 0;
       }
@@ -232,6 +252,8 @@ class HostC {
           }
         }
 
+        std::cout << "siamo qui" << std::endl;
+
         // check if in the meantime some process failes therefore we have to check if we
         // previously completed the uniform messaging procedure, if yes deliver
         // TODO I have to remove the completed messages from the ackMap otherwise too much work 
@@ -239,14 +261,17 @@ class HostC {
         unsigned long addrSize = addresses2.size();
 
         std::shared_lock lockAck(ackLock);
+        std::cout << "siamo dopo" << std::endl;
         for (auto i : ackMap) {
           for (auto m : i.second) { // m = pair (message -> set)
             //for (auto p : m.second) {
 
+              std::cout << m.second.size() << " : " << addrSize << std::endl;
               // all the addresses have rebroadcasted my message
               if (m.second.size() == addrSize) {
                 std::unique_lock lockP(pastLock);
                 past[i.first].erase(m.first);
+                lockP.unlock();
                 urbDeliver(m.first, i.first, std::string(""));
               }
             //}
@@ -274,7 +299,8 @@ class HostC {
       int status;
       //struct addrinfo hints, *si;
       struct addrinfo hints;
-      struct addrinfo * si = new addrinfo;
+      //struct addrinfo * si = new addrinfo;
+      struct addrinfo * si;
 
       // first, load up address structs with getaddrinfo():
 
@@ -282,10 +308,14 @@ class HostC {
       hints.ai_family = AF_UNSPEC;  // use IPv4 or IPv6, whichever
       hints.ai_socktype = SOCK_DGRAM; //use UDP
 
+      unsigned hPortU = hPort;
+      const char * hPortC = std::to_string(hPortU).c_str();
+
       // leave null as address for now -> localhost
       // if I want to specify the ip I should remove the AI_PASSIVE from hints
       // and substitute NULL with my ip
-      status = getaddrinfo(hIp.c_str(), convertIntMessageS(hPort), &hints, &si);
+      //status = getaddrinfo(hIp.c_str(), convertIntMessageS(hPort), &hints, &si);
+      status = getaddrinfo(hIp.c_str(), hPortC, &hints, &si);
       if (status != 0) {
         //writeError("Could not create addrinfo for host");
         return;
@@ -340,6 +370,7 @@ class HostC {
       int parsedN;
       if (std::sscanf(buffer,"%lu,%lu,%d,%lu", &senderId, &fromId, &ack, &message) == 4) {
           if (ack) {
+            std::cout << "ack from:" << fromId << std::endl;
             std::unique_lock lock(expectedLock);
             //long unsigned b = expected[senderId][fromId].count(message);
             //expected[fromId].erase(message); // does it work this way? test says yes
@@ -357,12 +388,19 @@ class HostC {
             unsigned long addrSize = addresses2.size();
 
             std::unique_lock lockAck(ackLock); //remember to do this in the watcher
-            ackMap[fromId][message].insert(fromId);
+            ackMap[fromId][message].insert(senderId);
+            std::cout << ackMap[fromId][message].size() << " : " << addrSize << std::endl;
             if (ackMap[fromId][message].size() == addrSize) { // all the addresses have rebroadcasted my message
+                std::cout << "dead1?" << std::endl;
                 std::unique_lock lockP(pastLock);
                 past[fromId].erase(message);
+                lockP.unlock();
+                std::cout << "dead2?" << std::endl;
+                /* I try to avoid putting it in delivered
                 std::unique_lock lockDel(deliveredLock);
                 delivered[fromId].insert(message); //TODO check if correct
+                lockDel.unlock();
+                */
                 urbDeliver(message, fromId, std::string(buffer));
             }
 
@@ -417,11 +455,14 @@ class HostC {
       // fifo thing and then add to buffer?
 
       std::shared_lock LockShD(deliveredLock);
+      std::cout << delivered[sId].count(m) << std::endl;
       if (delivered[sId].count(m) == 0) {
+        LockShD.unlock();
         if (buffer.size() > 8) { // if there is a chance of a past in the buffer
           std::vector<unsigned long> mPast = retrievePast(buffer);
           for (auto v : mPast) {
-            if (delivered.count(v) == 0) {
+            std::cout << delivered.count(v) << std::endl;
+            if (delivered[sId].count(v) == 0) {
               std::unique_lock outL(outBufferLock);
               //outBuffer.push_back(v);
               outBuffer.push_back(std::string("d ").append(std::to_string(sId)).append(" ").append(std::to_string(v)));
@@ -432,17 +473,19 @@ class HostC {
             }
           }
         }
+        std::unique_lock outL(outBufferLock);
+        if (sId == id) {
+          //outBuffer.push_back(std::string("b ").append(std::to_string(m)));
+          outBuffer.push_back(std::string("b ").append(std::to_string(m)));
+        } else {
+          std::string Iam = std::string("I am:").append(std::to_string(id));
+          outBuffer.push_back(Iam.append(std::string("d ")).append(std::to_string(sId)).append(" ").append(std::to_string(m)));
+        }
+        std::unique_lock LockUhD(deliveredLock);
+        delivered[sId].insert(m);
+        std::unique_lock LockPast(pastLock);
+        past[sId].insert(m); // not sure at all TODO check
       }
-      std::unique_lock outL(outBufferLock);
-      if (sId == id) {
-        outBuffer.push_back(std::string("b ").append(std::to_string(m)));
-      } else {
-        outBuffer.push_back(std::string("d ").append(std::to_string(sId)).append(" ").append(std::to_string(m)));
-      }
-      std::unique_lock LockUhD(deliveredLock);
-      delivered[sId].insert(m);
-      std::unique_lock LockPast(pastLock);
-      past[sId].insert(m); // not sure at all TODO check
     }
     
     std::vector<unsigned long> retrievePast(const std::string buffer) {
@@ -472,6 +515,7 @@ class HostC {
     void flushBuffer() {
       std::ofstream outputFile(outPath);
       if (outputFile.is_open()) {
+        std::cout << outBuffer.size() << std::endl;
         while (!outBuffer.empty()) {
           outputFile << outBuffer.front() << std::endl;
           outBuffer.pop_front();
