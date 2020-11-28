@@ -93,7 +93,7 @@ class HostC {
       errorFile = errorCore.append(idS);
     }
 
-    void initialize_network2(unsigned short myPort) {
+    void initialize_network(unsigned short myPort) {
       int status;
       struct addrinfo hints;
 
@@ -141,25 +141,8 @@ class HostC {
 
     }
 
-    const char * convertIntMessage(unsigned long m) {
-      std::string sM = std::to_string(m);
-      char const *cM = sM.c_str();
-      return cM;
-    }
-
-    const char * convertIntMessageS(unsigned short m) {
-      unsigned long newM = m;
-      std::string sM = std::to_string(newM);
-      char const *cM = sM.c_str();
-      return cM;
-    }
-
     ssize_t sendTo2(const char * m, const struct addrinfo *to) {
-      std::string mess = std::string(m);
-      std::string phrase = "sendTo message: ";
-      //writeError(phrase.append(mess));
-      //const void * convM = convertIntMessage(m);
-      //const char * convM = m.c_str();
+      std::cout << "sending:" << m << std::endl;
 
       //return sendto(sockfd, htonl(m), sizeof m, 0, to, sizeof *to) //htonl or htons?
       return sendto(sockfd, m, strlen(m), 0, to->ai_addr, to->ai_addrlen); //htonl or htons?
@@ -169,7 +152,7 @@ class HostC {
       for (auto peer : addresses2) {
           if (peer.first != id) {
               //writeError(std::string("peer id:").append(std::to_string(peer.first)));
-              sendTrack2(message, peer.first, fromId);
+              sendTrack(message, peer.first, fromId);
           }
       }
       // add the message that I just broadcasted to the past of myself
@@ -183,15 +166,18 @@ class HostC {
 
         //add myself in the ack
         // TODO check if correct
+        /*
         std::unique_lock LockA(ackLock);
         ackMap[id][i].insert(id);
+        */
       }
     }
 
     // Perfect link component
     // Send data and add the tracking to it if missing
-    ssize_t sendTrack2(const unsigned long m, const unsigned long toId, const unsigned long fromId) {
+    ssize_t sendTrack(const unsigned long m, const unsigned long toId, const unsigned long fromId) {
       //writeError("S: starting sendTrack");
+      std::cout << "m:" << m << ",to:" << toId << ",from:" << fromId << std::endl;
 
       //std::unordered_map<long unsigned int, int> mE = expected[toId];
       std::unique_lock lock(expectedLock);
@@ -239,20 +225,18 @@ class HostC {
         for (auto id_MapFrom : expected) {
           for (auto from_m : id_MapFrom.second) {
             for (auto m_count : from_m.second) {
-              // this is done in sendTrack2
+              // this is done in sendTrack
               /*
               if (m_count.second > expectedTreshold) {
                   // remove from addresses
               } else {
-                sendTrack2(m_count.first, id_MapFrom.first, from_m.first);
+                sendTrack(m_count.first, id_MapFrom.first, from_m.first);
               }
               */
-              sendTrack2(m_count.first, id_MapFrom.first, from_m.first);
+              sendTrack(m_count.first, id_MapFrom.first, from_m.first);
             }
           }
         }
-
-        std::cout << "siamo qui" << std::endl;
 
         // check if in the meantime some process failes therefore we have to check if we
         // previously completed the uniform messaging procedure, if yes deliver
@@ -261,14 +245,14 @@ class HostC {
         unsigned long addrSize = addresses2.size();
 
         std::shared_lock lockAck(ackLock);
-        std::cout << "siamo dopo" << std::endl;
         for (auto i : ackMap) {
           for (auto m : i.second) { // m = pair (message -> set)
             //for (auto p : m.second) {
 
               std::cout << m.second.size() << " : " << addrSize << std::endl;
               // all the addresses have rebroadcasted my message
-              if (m.second.size() == addrSize) {
+              //if (m.second.size() == addrSize) {
+              if (m.second.size() == addrSize - 1) {
                 std::unique_lock lockP(pastLock);
                 past[i.first].erase(m.first);
                 lockP.unlock();
@@ -280,7 +264,7 @@ class HostC {
       }
     }
 
-    ssize_t sendAck2(unsigned long m, unsigned long toId, unsigned long originalS) {
+    ssize_t sendAck(unsigned long m, unsigned long toId, unsigned long originalS) {
       struct addrinfo * to = addresses2[toId];
 
       std::string charMid = std::to_string(m);
@@ -295,12 +279,9 @@ class HostC {
       return sendTo2(mess, to);
     }
 
-    void addHost2(unsigned long hId, unsigned short hPort, std::string hIp) {
+    void addHost(unsigned long hId, unsigned short hPort, std::string hIp) {
       int status;
-      //struct addrinfo hints, *si;
-      struct addrinfo hints;
-      //struct addrinfo * si = new addrinfo;
-      struct addrinfo * si;
+      struct addrinfo hints, *si;
 
       // first, load up address structs with getaddrinfo():
 
@@ -337,23 +318,6 @@ class HostC {
           char buffer[20];
           bytesRcv = recvfrom(sockfd, buffer, 20, 0, reinterpret_cast<struct sockaddr *>(&their_addr), &addr_size);
           parseMessage(buffer, bytesRcv, &their_addr);
-          //writeError("buff size after parse in handle:" + std::to_string(outBuffer.size()));
-          // I do explicitly to see if avoid some reports from valgrind
-          /*
-          unsigned long lenOut = outBuffer.size();
-          std::string left = "buff size after parse in handle:";
-          std::string right = std::to_string(lenOut);
-          std::string sum = left.append(right);
-          writeError(sum);
-
-          if (outBuffer.size() > 0) {
-            std::string left2 = "front:";
-            std::string right2 = outBuffer.front();
-            std::string sum2 = left2.append(right2);
-            writeError(sum2);
-          }
-          //writeError("front:" + std::string(outBuffer.front()));
-          */
       }
     }
 
@@ -370,7 +334,7 @@ class HostC {
       int parsedN;
       if (std::sscanf(buffer,"%lu,%lu,%d,%lu", &senderId, &fromId, &ack, &message) == 4) {
           if (ack) {
-            std::cout << "ack from:" << fromId << std::endl;
+            std::cout << "ack from:" << senderId << std::endl;
             std::unique_lock lock(expectedLock);
             //long unsigned b = expected[senderId][fromId].count(message);
             //expected[fromId].erase(message); // does it work this way? test says yes
@@ -390,12 +354,12 @@ class HostC {
             std::unique_lock lockAck(ackLock); //remember to do this in the watcher
             ackMap[fromId][message].insert(senderId);
             std::cout << ackMap[fromId][message].size() << " : " << addrSize << std::endl;
-            if (ackMap[fromId][message].size() == addrSize) { // all the addresses have rebroadcasted my message
-                std::cout << "dead1?" << std::endl;
+            //if (ackMap[fromId][message].size() == addrSize) { // all the addresses have rebroadcasted my message
+            // TODO this has to be moved to when I receive the rebroadcast a message from me
+            if (ackMap[fromId][message].size() == addrSize - 1) { // all the addresses have rebroadcasted my message
                 std::unique_lock lockP(pastLock);
                 past[fromId].erase(message);
                 lockP.unlock();
-                std::cout << "dead2?" << std::endl;
                 /* I try to avoid putting it in delivered
                 std::unique_lock lockDel(deliveredLock);
                 delivered[fromId].insert(message); //TODO check if correct
@@ -423,7 +387,7 @@ class HostC {
             }
             */
           } else { // not an ack and not one of my messages
-            sendAck2(message, senderId, fromId);
+            sendAck(message, senderId, fromId);
 
               // this is related to urb
               // add to ack map
@@ -454,12 +418,15 @@ class HostC {
     void urbDeliver(const unsigned long m, const unsigned long sId, const std::string buffer) {
       // fifo thing and then add to buffer?
 
+      std::cout << "urbDeliver - buffer:" << buffer << std::endl;
       std::shared_lock LockShD(deliveredLock);
       std::cout << delivered[sId].count(m) << std::endl;
       if (delivered[sId].count(m) == 0) {
         LockShD.unlock();
-        if (buffer.size() > 8) { // if there is a chance of a past in the buffer
+        std::cout << "buffer size:" << buffer.size() << ",sId:" << sId << std::endl;
+        if (buffer.size() > 8 && sId != id) { // if there is a chance of a past in the buffer
           std::vector<unsigned long> mPast = retrievePast(buffer);
+          /*
           for (auto v : mPast) {
             std::cout << delivered.count(v) << std::endl;
             if (delivered[sId].count(v) == 0) {
@@ -472,14 +439,26 @@ class HostC {
               past[sId].insert(v); // not sure at all TODO check
             }
           }
+          */
+          for (auto it = mPast.rbegin(); it != mPast.rend(); ++it) { // do it in reverse (first the oldest)
+            std::cout << delivered.count(*it) << std::endl;
+            if (delivered[sId].count(*it) == 0) {
+              std::unique_lock outL(outBufferLock);
+              //outBuffer.push_back(v);
+              outBuffer.push_back(std::string("d ").append(std::to_string(sId)).append(" ").append(std::to_string(*it)).append(std::string(" it")));
+              std::unique_lock LockUhD(deliveredLock);
+              delivered[sId].insert(*it);
+              std::unique_lock LockPast(pastLock);
+              past[sId].insert(*it); // not sure at all TODO check
+            }
+          }
         }
         std::unique_lock outL(outBufferLock);
         if (sId == id) {
           //outBuffer.push_back(std::string("b ").append(std::to_string(m)));
           outBuffer.push_back(std::string("b ").append(std::to_string(m)));
         } else {
-          std::string Iam = std::string("I am:").append(std::to_string(id));
-          outBuffer.push_back(Iam.append(std::string("d ")).append(std::to_string(sId)).append(" ").append(std::to_string(m)));
+          outBuffer.push_back(std::string("d ").append(std::to_string(sId)).append(" ").append(std::to_string(m)));
         }
         std::unique_lock LockUhD(deliveredLock);
         delivered[sId].insert(m);
@@ -499,17 +478,6 @@ class HostC {
       }
       pastV.push_back(std::stoul(buffer.substr(start, end)));
       return pastV;
-    }
-
-    void flushBuffer2() {
-      std::ofstream outputFile(outPath.append("-internal"));
-      if (outputFile.is_open()) {
-        while (!outBuffer.empty()) {
-          outputFile << "m:" << outBuffer.front() << std::endl;
-          outBuffer.pop_front();
-        }
-        outputFile.close();
-      }
     }
 
     void flushBuffer() {
@@ -553,4 +521,32 @@ class HostC {
       */
       return sendto(sockfd, m, strlen(m), 0, to, sizeof *to); //htonl or htons?
     }
+
+    /*
+    const char * convertIntMessage(unsigned long m) {
+      std::string sM = std::to_string(m);
+      char const *cM = sM.c_str();
+      return cM;
+    }
+
+    const char * convertIntMessageS(unsigned short m) {
+      unsigned long newM = m;
+      std::string sM = std::to_string(newM);
+      char const *cM = sM.c_str();
+      return cM;
+    }
+    */
+
+    /*
+    void flushBuffer2() {
+      std::ofstream outputFile(outPath.append("-internal"));
+      if (outputFile.is_open()) {
+        while (!outBuffer.empty()) {
+          outputFile << "m:" << outBuffer.front() << std::endl;
+          outBuffer.pop_front();
+        }
+        outputFile.close();
+      }
+    }
+    */
 };

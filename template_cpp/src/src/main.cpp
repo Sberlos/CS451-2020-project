@@ -72,11 +72,11 @@ int main(int argc, char **argv) {
 
     //node.addHost(host.id, host.port, host.ip);
     //node.addHost2(host.id, host.portReadable(), host.ipReadable());
-    node->addHost2(host.id, host.portReadable(), host.ipReadable());
+    node->addHost(host.id, host.portReadable(), host.ipReadable());
 
     if (host.id == parser.id()) {
       //node.initialize_network2(host.portReadable());
-      node->initialize_network2(host.portReadable());
+      node->initialize_network(host.portReadable());
     }
 
     std::cout << host.id << "\n";
@@ -145,7 +145,7 @@ int main(int argc, char **argv) {
   // 2) Doesn't make much sense to check for missing packets while I have not yet sent
   // everything
 
-  std::thread checker(&HostC::checker, node);
+  //std::thread checker(&HostC::checker, node);
 
   std::cout << "Signaling end of broadcasting messages\n\n";
   coordinator.finishedBroadcasting();
