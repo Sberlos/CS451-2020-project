@@ -7,9 +7,13 @@
 #include "host.hpp"
 #include "hello.h"
 #include <signal.h>
+#include <urb.hpp>
+#include <perfectLink.hpp>
 
 // terrible thing having a global but I don't know how to avoid it
-HostC * hostRef;
+//HostC * hostRef;
+Urb * urbPointer;
+perfect_link * plPointer;
 
 static void stop(int) {
   // reset signal handlers to default
@@ -18,16 +22,24 @@ static void stop(int) {
 
 // immediately stop network packet processing
   std::cout << "Immediately stopping network packet processing.\n";
+  /*
+  hostRef->stopThreads();
+
+  // I would have to have a join here but not sure how to have the reference to the Threads
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+  */
+  urbPointer->stopThreads();
 
   // write/flush output file if necessary
   std::cout << "Writing output.\n";
-  hostRef->flushBuffer();
+  //hostRef->flushBuffer();
 
   // free network resources
   // I think I can do it in the initialization method
-  hostRef->free_network();
+  plPointer->free_network();
 
-  delete hostRef;
+  delete plPointer;
+  delete urbPointer;
 
   // exit directly from signal handler
   exit(0);
@@ -50,8 +62,11 @@ int main(int argc, char **argv) {
   HostC node = HostC(parser.id(), parser.configPath(), parser.outputPath());
   hostRef = &node;
   */
+  /* This was the used one
   HostC *node = new HostC(parser.id(), parser.configPath(), parser.outputPath());
   hostRef = node;
+  */
+  plPointer = new perfect_link(parser.id());
 
   std::cout << std::endl;
 
@@ -72,11 +87,13 @@ int main(int argc, char **argv) {
 
     //node.addHost(host.id, host.port, host.ip);
     //node.addHost2(host.id, host.portReadable(), host.ipReadable());
-    node->addHost(host.id, host.portReadable(), host.ipReadable());
+
+    // This was the used one
+    plPointer->addHost(host.id, host.portReadable(), host.ipReadable());
 
     if (host.id == parser.id()) {
       //node.initialize_network2(host.portReadable());
-      node->initialize_network(host.portReadable());
+      plPointer->initialize_network(host.portReadable());
     }
 
     std::cout << host.id << "\n";
@@ -129,15 +146,18 @@ int main(int argc, char **argv) {
   
   //node.initialize_network();
   //std::thread listener(&HostC::handleMessages, std::ref(node));
-  std::thread listener(&HostC::handleMessages, node);
+  std::thread listener(&perfect_link::handleMessages, plPointer);
 
   std::cout << "Waiting for all processes to finish initialization\n\n";
   coordinator.waitOnBarrier();
 
   std::cout << "Broadcasting messages...\n\n";
+  /*
   std::thread sender(&HostC::startBroadcasting, node);
 
   sender.join();
+  */
+  urbPointer->urbBroadcast(1);
 
   // Start to check only after the sender has broadcasted all the messages
   // This is for two reasons:
@@ -145,7 +165,8 @@ int main(int argc, char **argv) {
   // 2) Doesn't make much sense to check for missing packets while I have not yet sent
   // everything
 
-  //std::thread checker(&HostC::checker, node);
+  std::thread checker(&perfect_link::checker, plPointer);
+  std::thread extractor(&Urb::extractFromDelivering, urbPointer);
 
   std::cout << "Signaling end of broadcasting messages\n\n";
   coordinator.finishedBroadcasting();

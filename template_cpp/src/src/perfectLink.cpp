@@ -1,8 +1,9 @@
 #include "perfectLink.hpp"
 
-void perfectLink::initialize_network(unsigned short myPort) {
+void perfect_link::initialize_network(unsigned short myPort) {
     int status;
     struct addrinfo hints;
+    struct addrinfo *servinfo;
 
     // first, load up address structs with getaddrinfo():
 
@@ -15,9 +16,9 @@ void perfectLink::initialize_network(unsigned short myPort) {
     int mP = myPort;
     //writeError(std::to_string(mP));
     unsigned myPortU = myPort;
-    const char * myPortC = std::to_string(myPortU).c_str();
+    std::string myPortS = std::to_string(myPortU);
 
-    if ((status = getaddrinfo(NULL, myPortC, &hints, &servinfo)) != 0) {
+    if ((status = getaddrinfo(NULL, myPortS.c_str(), &hints, &servinfo)) != 0) {
           fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
           //writeError("Error while initializing network");
           exit(1); //exit or retry?
@@ -32,18 +33,23 @@ void perfectLink::initialize_network(unsigned short myPort) {
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &read_timeout, sizeof read_timeout);
 
     // bind it to the port we passed in to getaddrinfo():
-    bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen);
-
+    int res = bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen);
+    if (res == -1) {
+        freeaddrinfo(servinfo);
+        fprintf(stderr, "bind error: %s\n", gai_strerror(res)); //not sure
+        exit(-1);
+    }
     // free the allocated linked list
     freeaddrinfo(servinfo);
 }
 
-void perfectLink::free_network() {
+void perfect_link::free_network() {
     for (auto s : addresses) {
         freeaddrinfo(s.second);
     }
+}
 
-void perfectLink::addHost(unsigned long hId, unsigned short hPort, std::string hIp) {
+void perfect_link::addHost(unsigned long hId, unsigned short hPort, std::string hIp) {
     int status;
     struct addrinfo hints, *si;
 
@@ -54,13 +60,13 @@ void perfectLink::addHost(unsigned long hId, unsigned short hPort, std::string h
     hints.ai_socktype = SOCK_DGRAM; //use UDP
 
     unsigned hPortU = hPort;
-    const char * hPortC = std::to_string(hPortU).c_str();
+    std::string myPortS = std::to_string(hPortU);
 
     // leave null as address for now -> localhost
     // if I want to specify the ip I should remove the AI_PASSIVE from hints
     // and substitute NULL with my ip
     //status = getaddrinfo(hIp.c_str(), convertIntMessageS(hPort), &hints, &si);
-    status = getaddrinfo(hIp.c_str(), hPortC, &hints, &si);
+    status = getaddrinfo(hIp.c_str(), myPortS.c_str(), &hints, &si);
     if (status != 0) {
         return;
     }
@@ -68,7 +74,7 @@ void perfectLink::addHost(unsigned long hId, unsigned short hPort, std::string h
     addresses[hId] = si;
 }
 
-void perfectLink::handleMessages() {
+void perfect_link::handleMessages() {
     struct sockaddr_storage their_addr;
     socklen_t addr_size;
 
@@ -83,11 +89,12 @@ void perfectLink::handleMessages() {
         if (bytesRcv == -1) {
             continue;
         }
-        parseMessage(buffer, bytesRcv, &their_addr);
+        parseMessage(buffer);
     }
 }
 
-void perfectLink::parseMessage(const char * buffer, const long bytesRcv, const struct sockaddr_storage * from) {
+//void perfect_link::parseMessage(const char * buffer, const struct sockaddr_storage * from) {
+void perfect_link::parseMessage(const char * buffer) {
 
     unsigned long senderId;
     unsigned long fromId;
@@ -104,21 +111,23 @@ void perfectLink::parseMessage(const char * buffer, const long bytesRcv, const s
 
             // extract the size of the correct addresses
             std::shared_lock lockAddr(addessesLock);
-            unsigned long addrSize = addresses2.size();
+            unsigned long addrSize = addresses.size();
 
             std::unique_lock lockAck(ackLock); //remember to do this in the watcher
             ackMap[fromId][message].insert(senderId);
             std::cout << ackMap[fromId][message].size() << " : " << addrSize << std::endl;
             lockAck.unlock();
 
-            // TODO change with the connection with the layer above
-            deliver(fromId, senderId, message);
+            deliver(fromId, senderId, message, buffer);
         } else {
+            /*
             if (fromId == id) {
                 sendAckMine(message, from);
             } else {
                 sendAck(message, senderId, fromId);
             }
+            */
+            sendAck(message, senderId, fromId);
             std::shared_lock delShLock(deliveredLock);
             if (delivered[fromId].count(message) < 1) {
                 delShLock.unlock();
@@ -126,13 +135,13 @@ void perfectLink::parseMessage(const char * buffer, const long bytesRcv, const s
                 delivered[fromId].insert(message);
                 delULock.unlock();
                 // TODO change with the connection with the layer above
-                deliver(fromId, senderId, message);
+                deliver(fromId, senderId, message, buffer);
             }
         }
     }
 }
 
-ssize_t perfectLink::sendAck(unsigned long m, unsigned long toId, unsigned long originalS) {
+ssize_t perfect_link::sendAck(unsigned long m, unsigned long toId, unsigned long originalS) {
     struct addrinfo * to = addresses[toId];
 
     std::string charMid = std::to_string(m);
@@ -145,7 +154,7 @@ ssize_t perfectLink::sendAck(unsigned long m, unsigned long toId, unsigned long 
     return sendTo2(mess, to);
 }
 
-void perfectLink::checker() {
+void perfect_link::checker() {
     while (run.load()) {
         // TODO change the value afterwards
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -160,9 +169,10 @@ void perfectLink::checker() {
 
         // check if in the meantime some process failes therefore we have to check if we
         // previously completed the uniform messaging procedure, if yes deliver
-        // TODO I have to remove the completed messages from the ackMap otherwise too much work 
+        // TODO I have to remove the completed messages from the ackMap otherwise too much work
+        /* This thing belongs to URB move there TODO
         std::shared_lock lockAddr(addessesLock);
-        unsigned long addrSize = addresses2.size();
+        unsigned long addrSize = addresses.size();
 
         std::shared_lock lockAck(ackLock);
         for (auto i : ackMap) {
@@ -180,16 +190,17 @@ void perfectLink::checker() {
                 }
             }
         }
+        */
     }
 }
 
 // Send data and add the tracking to it if missing
-ssize_t perfectLink::sendTrack(const unsigned long m, const unsigned long toId, const unsigned long fromId) {
+ssize_t perfect_link::sendTrack(const unsigned long m, const unsigned long toId, const unsigned long fromId) {
     //writeError("S: starting sendTrack");
     std::cout << "m:" << m << ",to:" << toId << ",from:" << fromId << std::endl;
 
     //std::unordered_map<long unsigned int, int> mE = expected[toId];
-    std::unique_lock lock(expectedLock);
+    std::unique_lock lockE(expectedLock);
     unsigned vE = expected[toId][fromId][m];
     expected[toId][fromId][m] = ++vE;
     //expectedLock.unlock();
@@ -197,13 +208,13 @@ ssize_t perfectLink::sendTrack(const unsigned long m, const unsigned long toId, 
         // remove process from correct -> addresses list
         std::unique_lock lockA(addessesLock);
         // I should also free the addrinfo
-        freeaddrinfo(addresses2[toId]);
-        addresses2.erase(toId);
+        freeaddrinfo(addresses[toId]);
+        addresses.erase(toId);
         return 0;
     }
 
     std::shared_lock lockA(addessesLock);
-    struct addrinfo * to = addresses2[toId];
+    struct addrinfo * to = addresses[toId];
 
     const std::string fromIdS = std::to_string(fromId);
     std::string sM = std::to_string(id).append(",").append(fromIdS).append(",0,").append(std::to_string(m));
@@ -214,7 +225,7 @@ ssize_t perfectLink::sendTrack(const unsigned long m, const unsigned long toId, 
     return sendTo2(charM, to);
 }
 
-std::string perfectLink::appendPast(std::string mS, unsigned long pId) {
+std::string perfect_link::appendPast(std::string mS, unsigned long pId) {
     std::shared_lock pSLock(pastLock);
     for (unsigned long m : past[pId]) {
         mS.append(";").append(std::to_string(m));
@@ -223,13 +234,40 @@ std::string perfectLink::appendPast(std::string mS, unsigned long pId) {
     return mS;
 }
 
-ssize_t perfectLink::sendTo2(const char * m, const struct addrinfo *to) {
+ssize_t perfect_link::sendTo2(const char * m, const struct addrinfo *to) {
       std::cout << "sending:" << m << std::endl;
       return sendto(sockfd, m, strlen(m), 0, to->ai_addr, to->ai_addrlen);
 }
 
-void perfectLink::deliver(const unsigned long fromId, const unsigned long senderId, const unsigned long m, const std::string buffer) {
-    struct deliverInfo * data = new deliverInfo(fromId, senderId, m, buffer);
+void perfect_link::deliver(const unsigned long fromId, const unsigned long senderId, const unsigned long m, const std::string buffer) {
+    deliverInfo * data = new deliverInfo(fromId, senderId, m, buffer);
     std::unique_lock dequeLock(deliveringLock);
     delivering.push_back(data);
+}
+
+deliverInfo * perfect_link::getDelivered() {
+    std::unique_lock dequeLock(deliveringLock);
+    if (!delivering.empty()) {
+        deliverInfo * data = delivering.front();
+        delivering.pop_front();
+        return data;
+    }
+    return NULL;
+}
+
+std::vector<unsigned long> perfect_link::getAddressesIds() const {
+    std::vector<unsigned long> addressesIds;
+    std::shared_lock addrLock(addessesLock);
+    for (auto id_addr : addresses) {
+        addressesIds.push_back(id_addr.first);
+    }
+    return addressesIds;
+}
+
+unsigned long perfect_link::getId() const {
+    return id;
+}
+
+void perfect_link::stopThreads() {
+    run = false;
 }

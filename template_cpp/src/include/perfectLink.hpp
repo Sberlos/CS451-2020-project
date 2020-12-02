@@ -1,6 +1,24 @@
 #ifndef perfectLink_hpp
 #define perfectLink_hpp
 
+#include <unordered_map>
+#include <unordered_set>
+#include <set>
+#include <shared_mutex>
+#include <mutex>
+#include <atomic>
+#include <vector>
+#include <deque>
+#include <iostream>
+#include <thread>
+#include <cstring>
+
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netdb.h>
+
+#include <dataStructures.hpp>
+
 class perfect_link {
     private:
         unsigned long id;
@@ -25,6 +43,7 @@ class perfect_link {
         mutable std::shared_mutex ackLock;
         mutable std::shared_mutex pastLock;
         mutable std::shared_mutex deliveredLock;
+        mutable std::shared_mutex expectedLock;
 
         //TODO check if I will use it
         mutable std::shared_mutex deliveringLock;
@@ -36,7 +55,8 @@ class perfect_link {
         perfect_link(long unsigned int p_id) : id(p_id), addresses(), expected(), ackMap(), delivered(), past(), delivering(), run(true) {};
 
         // all methods
-        void parseMessage(const char * buffer, const long bytesRcv, const struct sockaddr_storage * from);
+        //void parseMessage(const char * buffer, const struct sockaddr_storage * from);
+        void parseMessage(const char * buffer);
         void handleMessages();
         void addHost(unsigned long hId, unsigned short hPort, std::string hIp);
         ssize_t sendAck(unsigned long m, unsigned long toId, unsigned long originalS);
@@ -49,10 +69,13 @@ class perfect_link {
 
         //TODO check if I will use it
         void deliver(const unsigned long fromId, const unsigned long senderId, const unsigned long m, const std::string buffer);
+        deliverInfo * getDelivered();
 
         // getters TODO think of a better way
-        std::vector<unsigned long> getAddressesIds();
-        unsigned long getId();
+        std::vector<unsigned long> getAddressesIds() const;
+        unsigned long getId() const;
+
+        void stopThreads();
 };
 
 #endif
