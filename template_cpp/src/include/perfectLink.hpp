@@ -27,10 +27,12 @@ class perfect_link {
         std::unordered_map<unsigned long, addrinfo *> addresses;
         std::unordered_map<long unsigned, std::unordered_map<long unsigned, std::unordered_map<long unsigned, unsigned>>> expected;
         
-        unsigned expectedTreshold;
+        unsigned expectedTreshold = 5;
         std::unordered_map<unsigned long, std::unordered_map<unsigned long, std::unordered_set<unsigned long>>> ackMap;
         // Isn't this replicated in every layer?
-        std::unordered_map<unsigned long, std::set<unsigned long>> delivered;
+        //std::unordered_map<unsigned long, std::set<unsigned long>> delivered;
+        //This new version includes the sender: from -> sender -> message
+        std::unordered_map<unsigned long, std::unordered_map<unsigned long, std::set<unsigned long>>> delivered;
 
         std::unordered_map<unsigned long, std::unordered_set<unsigned long>> past;
 

@@ -32,6 +32,7 @@ class Urb {
         Urb(perfect_link * pfl);
 
         void extractFromDelivering();
+        void checkToDeliver();
         void urbBroadcast(const unsigned long m);
         // move this to his own class?
         void bebBroadcast(const unsigned long m, const unsigned long fromId) const;

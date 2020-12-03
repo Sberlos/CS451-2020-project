@@ -118,7 +118,36 @@ void perfect_link::parseMessage(const char * buffer) {
             std::cout << ackMap[fromId][message].size() << " : " << addrSize << std::endl;
             lockAck.unlock();
 
-            deliver(fromId, senderId, message, buffer);
+            /*
+            std::shared_lock delShLock(deliveredLock);
+            if (delivered[fromId].count(message) < 1) {
+                delShLock.unlock();
+                std::unique_lock delULock(deliveredLock);
+                delivered[fromId].insert(message);
+                delULock.unlock();
+                if (fromId == id) {
+                    deliver(fromId, fromId, message, buffer);
+                } else {
+                    deliver(fromId, senderId, message, buffer);
+                }
+            }
+            */
+            std::shared_lock delShLock(deliveredLock);
+            if (delivered[fromId][id].count(message) < 1) {
+                delShLock.unlock();
+                std::unique_lock delULock(deliveredLock);
+                delivered[fromId][id].insert(message);
+                delULock.unlock();
+                /*
+                if (fromId == id) {
+                    deliver(fromId, fromId, message, buffer);
+                } else {
+                    deliver(fromId, senderId, message, buffer);
+                }
+                */
+                deliver(fromId, id, message, buffer);
+            }
+            //deliver(fromId, senderId, message, buffer);
         } else {
             /*
             if (fromId == id) {
@@ -129,10 +158,10 @@ void perfect_link::parseMessage(const char * buffer) {
             */
             sendAck(message, senderId, fromId);
             std::shared_lock delShLock(deliveredLock);
-            if (delivered[fromId].count(message) < 1) {
+            if (delivered[fromId][senderId].count(message) < 1) {
                 delShLock.unlock();
                 std::unique_lock delULock(deliveredLock);
-                delivered[fromId].insert(message);
+                delivered[fromId][senderId].insert(message);
                 delULock.unlock();
                 // TODO change with the connection with the layer above
                 deliver(fromId, senderId, message, buffer);
@@ -159,6 +188,7 @@ void perfect_link::checker() {
         // TODO change the value afterwards
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
+        // TODO problem here: I check only expected and not if the node has been erased
         for (auto id_MapFrom : expected) {
             for (auto from_m : id_MapFrom.second) {
                 for (auto m_count : from_m.second) {
