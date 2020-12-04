@@ -33,11 +33,13 @@ class Urb {
 
         void extractFromDelivering();
         void checkToDeliver();
-        void urbBroadcast(const unsigned long m);
+        void urbBroadcast(const unsigned long m, const std::string past);
         // move this to his own class?
-        void bebBroadcast(const unsigned long m, const unsigned long fromId) const;
+        void bebBroadcast(const unsigned long m, const unsigned long fromId, const std::string past) const;
         void urbDeliver(const unsigned long fromId, const unsigned long m);
         void stopThreads();
 
+        // getters for the layer above
+        unsigned long getId() const;
 };
 #endif

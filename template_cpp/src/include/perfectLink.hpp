@@ -25,7 +25,9 @@ class perfect_link {
         unsigned long toBroad;
 
         std::unordered_map<unsigned long, addrinfo *> addresses;
-        std::unordered_map<long unsigned, std::unordered_map<long unsigned, std::unordered_map<long unsigned, unsigned>>> expected;
+        //std::unordered_map<long unsigned, std::unordered_map<long unsigned, std::unordered_map<long unsigned, unsigned>>> expected;
+        // from who I expect the ack -> original sender of m -> m -> (count, past)
+        std::unordered_map<long unsigned, std::unordered_map<long unsigned, std::unordered_map<long unsigned, std::pair<unsigned, std::string>>>> expected;
         
         unsigned expectedTreshold = 5;
         std::unordered_map<unsigned long, std::unordered_map<unsigned long, std::unordered_set<unsigned long>>> ackMap;
@@ -64,7 +66,7 @@ class perfect_link {
         ssize_t sendAck(unsigned long m, unsigned long toId, unsigned long originalS);
         void checker();
         std::string appendPast(std::string mS, unsigned long pId);
-        ssize_t sendTrack(const unsigned long m, const unsigned long toId, const unsigned long fromId);
+        ssize_t sendTrack(const unsigned long m, const unsigned long toId, const unsigned long fromId, const std::string past);
         ssize_t sendTo2(const char * m, const struct addrinfo *to);
         void free_network();
         void initialize_network(unsigned short myPort);
@@ -78,6 +80,8 @@ class perfect_link {
         unsigned long getId() const;
 
         void stopThreads();
+
+        std::string extractPast(const std::string buffer) const;
 };
 
 #endif

@@ -109,53 +109,26 @@ void perfect_link::parseMessage(const char * buffer) {
             expected[senderId][fromId].erase(message); // does it work this way? test says yes
             expLock.unlock();
 
+            /*
             // extract the size of the correct addresses
             std::shared_lock lockAddr(addessesLock);
             unsigned long addrSize = addresses.size();
+            */
 
             std::unique_lock lockAck(ackLock); //remember to do this in the watcher
             ackMap[fromId][message].insert(senderId);
-            std::cout << ackMap[fromId][message].size() << " : " << addrSize << std::endl;
+            //std::cout << ackMap[fromId][message].size() << " : " << addrSize << std::endl;
             lockAck.unlock();
 
-            /*
-            std::shared_lock delShLock(deliveredLock);
-            if (delivered[fromId].count(message) < 1) {
-                delShLock.unlock();
-                std::unique_lock delULock(deliveredLock);
-                delivered[fromId].insert(message);
-                delULock.unlock();
-                if (fromId == id) {
-                    deliver(fromId, fromId, message, buffer);
-                } else {
-                    deliver(fromId, senderId, message, buffer);
-                }
-            }
-            */
             std::shared_lock delShLock(deliveredLock);
             if (delivered[fromId][id].count(message) < 1) {
                 delShLock.unlock();
                 std::unique_lock delULock(deliveredLock);
                 delivered[fromId][id].insert(message);
                 delULock.unlock();
-                /*
-                if (fromId == id) {
-                    deliver(fromId, fromId, message, buffer);
-                } else {
-                    deliver(fromId, senderId, message, buffer);
-                }
-                */
                 deliver(fromId, id, message, buffer);
             }
-            //deliver(fromId, senderId, message, buffer);
         } else {
-            /*
-            if (fromId == id) {
-                sendAckMine(message, from);
-            } else {
-                sendAck(message, senderId, fromId);
-            }
-            */
             sendAck(message, senderId, fromId);
             std::shared_lock delShLock(deliveredLock);
             if (delivered[fromId][senderId].count(message) < 1) {
@@ -163,7 +136,6 @@ void perfect_link::parseMessage(const char * buffer) {
                 std::unique_lock delULock(deliveredLock);
                 delivered[fromId][senderId].insert(message);
                 delULock.unlock();
-                // TODO change with the connection with the layer above
                 deliver(fromId, senderId, message, buffer);
             }
         }
@@ -191,8 +163,8 @@ void perfect_link::checker() {
         // TODO problem here: I check only expected and not if the node has been erased
         for (auto id_MapFrom : expected) {
             for (auto from_m : id_MapFrom.second) {
-                for (auto m_count : from_m.second) {
-                    sendTrack(m_count.first, id_MapFrom.first, from_m.first);
+                for (auto m_pair : from_m.second) {
+                    sendTrack(m_pair.first, id_MapFrom.first, from_m.first, m_pair.second.second);
                 }
             }
         }
@@ -225,14 +197,15 @@ void perfect_link::checker() {
 }
 
 // Send data and add the tracking to it if missing
-ssize_t perfect_link::sendTrack(const unsigned long m, const unsigned long toId, const unsigned long fromId) {
+ssize_t perfect_link::sendTrack(const unsigned long m, const unsigned long toId, const unsigned long fromId, const std::string past) {
     //writeError("S: starting sendTrack");
     std::cout << "m:" << m << ",to:" << toId << ",from:" << fromId << std::endl;
 
     //std::unordered_map<long unsigned int, int> mE = expected[toId];
     std::unique_lock lockE(expectedLock);
-    unsigned vE = expected[toId][fromId][m];
-    expected[toId][fromId][m] = ++vE;
+    unsigned vE = expected[toId][fromId][m].first;
+    expected[toId][fromId][m].first = ++vE; // Can I do it? TODO check
+    expected[toId][fromId][m].second = past;
     //expectedLock.unlock();
     if (vE > expectedTreshold) {
         // remove process from correct -> addresses list
@@ -249,9 +222,8 @@ ssize_t perfect_link::sendTrack(const unsigned long m, const unsigned long toId,
     const std::string fromIdS = std::to_string(fromId);
     std::string sM = std::to_string(id).append(",").append(fromIdS).append(",0,").append(std::to_string(m));
     // append past
-    std::string newSM;
-    newSM = appendPast(sM, fromId);
-    const char * charM = newSM.c_str();
+    sM.append(past);
+    const char * charM = sM.c_str();
     return sendTo2(charM, to);
 }
 
@@ -300,4 +272,9 @@ unsigned long perfect_link::getId() const {
 
 void perfect_link::stopThreads() {
     run = false;
+}
+
+std::string perfect_link::extractPast(const std::string buffer) const {
+    unsigned long start = buffer.find(";");
+    return buffer.substr(start);
 }

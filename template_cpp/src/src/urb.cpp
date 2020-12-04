@@ -6,18 +6,11 @@ Urb::Urb(perfect_link * pfl) : forwardMap(), ackMap(), delivered(), run(true) {
 }
 
 void Urb::extractFromDelivering() {
-    // This thing is wrong: I have to insert the sender and not always myself!
-    // check slide 34: pi is not always myself!
-    // TODO -> fixed at line 16 (I use senderId now) -> check if right
     while (run.load()) {
         deliverInfo * data = pl->getDelivered();
         if (data) {
             std::cout << "extracting from delivery:" << data->message << ", from:" << data->senderId << std::endl;
-            //if (fromId != id) { //?
-            // TODO ask TA if the sender can also be me
             std::unique_lock ackL(ackLock);
-            // TODO get id
-            //ackMap[data->fromId][data->message].insert(pl->getId());
             ackMap[data->fromId][data->message].insert(data->senderId);
 
             std::shared_lock forwardShL(forwardLock);
@@ -26,7 +19,7 @@ void Urb::extractFromDelivering() {
                 std::unique_lock forwardUL(forwardLock);
                 forwardMap[data->fromId].insert(data->message);
                 forwardUL.unlock();
-                bebBroadcast(data->message, data->fromId);
+                bebBroadcast(data->message, data->fromId, pl->extractPast(data->buffer));
             }
             delete data;
         } else {
@@ -59,21 +52,21 @@ void Urb::checkToDeliver() {
     }
 }
 
-void Urb::bebBroadcast(const unsigned long message, const unsigned long fromId) const {
+void Urb::bebBroadcast(const unsigned long message, const unsigned long fromId, const std::string past) const {
     std::vector<unsigned long> addressesIds = pl->getAddressesIds();
     const unsigned long id = pl->getId();
     for (auto peerId : addressesIds) {
         if (peerId != id) {
-            pl->sendTrack(message, peerId, fromId);
+            pl->sendTrack(message, peerId, fromId, past);
         }
     }
 }
 
-void Urb::urbBroadcast(const unsigned long m) {
+void Urb::urbBroadcast(const unsigned long m, const std::string past) {
     std::unique_lock fLock(forwardLock);
     forwardMap[pl->getId()].insert(m);
     fLock.unlock();
-    bebBroadcast(m, pl->getId());
+    bebBroadcast(m, pl->getId(), past);
 }
 
 void Urb::urbDeliver(const unsigned long fromId, const unsigned long m) {
@@ -90,4 +83,8 @@ void Urb::urbDeliver(const unsigned long fromId, const unsigned long m) {
 void Urb::stopThreads() {
     run = false;
     pl->stopThreads();
+}
+
+unsigned long Urb::getId() const {
+    return pl->getId();
 }
