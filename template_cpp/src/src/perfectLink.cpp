@@ -161,6 +161,7 @@ void perfect_link::checker() {
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
         // TODO problem here: I check only expected and not if the node has been erased
+        std::shared_lock expL(expectedLock);
         for (auto id_MapFrom : expected) {
             for (auto from_m : id_MapFrom.second) {
                 for (auto m_pair : from_m.second) {
@@ -276,5 +277,8 @@ void perfect_link::stopThreads() {
 
 std::string perfect_link::extractPast(const std::string buffer) const {
     unsigned long start = buffer.find(";");
+    if (start == std::string::npos) {
+        return "";
+    }
     return buffer.substr(start);
 }

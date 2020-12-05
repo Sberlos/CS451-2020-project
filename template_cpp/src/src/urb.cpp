@@ -1,7 +1,7 @@
 #include <urb.hpp>
 #include <perfectLink.hpp>
 
-Urb::Urb(perfect_link * pfl) : forwardMap(), ackMap(), delivered(), run(true) {
+Urb::Urb(perfect_link * pfl) : forwardMap(), ackMap(), delivered(), delivering(), pastBufferMap(), run(true) {
     pl = pfl;
 }
 
@@ -12,6 +12,15 @@ void Urb::extractFromDelivering() {
             std::cout << "extracting from delivery:" << data->message << ", from:" << data->senderId << std::endl;
             std::unique_lock ackL(ackLock);
             ackMap[data->fromId][data->message].insert(data->senderId);
+            ackL.unlock();
+
+            // extract past from data and add to the map tracking it for each message
+            std::string pastS = pl->extractPast(data->buffer);
+            std::unique_lock pastBL(pBuffLock);
+            if (pastBufferMap[data->fromId].count(data->message) < 1) {
+                pastBufferMap[data->fromId][data->message] = pastS;
+            }
+            pastBL.unlock();
 
             std::shared_lock forwardShL(forwardLock);
             if (forwardMap[data->fromId].count(data->message) < 1) {
@@ -19,17 +28,17 @@ void Urb::extractFromDelivering() {
                 std::unique_lock forwardUL(forwardLock);
                 forwardMap[data->fromId].insert(data->message);
                 forwardUL.unlock();
-                bebBroadcast(data->message, data->fromId, pl->extractPast(data->buffer));
+                bebBroadcast(data->message, data->fromId, pastS);
             }
             delete data;
         } else {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 }
 
 void Urb::checkToDeliver() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
     while (run.load()) {
         std::shared_lock forLock(forwardLock);
         for (auto id_mSet : forwardMap) {
@@ -48,7 +57,13 @@ void Urb::checkToDeliver() {
             }
         }
         forLock.unlock();
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    std::cout << "deliveredMap size:" << delivered.size() << std::endl;
+    for (auto id_set : delivered) {
+        for (auto m : id_set.second) {
+            std::cout << "deliveredMap:" << id_set.first << "-" << m << std::endl;
+        }
     }
 }
 
@@ -70,14 +85,13 @@ void Urb::urbBroadcast(const unsigned long m, const std::string past) {
 }
 
 void Urb::urbDeliver(const unsigned long fromId, const unsigned long m) {
-    deliverInfo * data = new deliverInfo(fromId, 0, m, "");
+    std::shared_lock pastBL(pBuffLock);
+    std::string pastS = pastBufferMap[fromId][m];
+    pastBL.unlock();
+    deliverInfo * data = new deliverInfo(fromId, 0, m, pastS);
     std::unique_lock dequeLock(deliveringLock);
     delivering.push_back(data);
-    if (fromId == pl->getId()) {
-        std::cout << "b " << m << std::endl;
-    } else {
-        std::cout << "d " << fromId << " " << m << std::endl;
-    }
+    std::cout << "urb deliver: d " << fromId << " " << m << pastS << std::endl;
 }
 
 void Urb::stopThreads() {
@@ -87,4 +101,14 @@ void Urb::stopThreads() {
 
 unsigned long Urb::getId() const {
     return pl->getId();
+}
+
+deliverInfo * Urb::getDelivered() {
+    std::unique_lock dequeLock(deliveringLock);
+    if (!delivering.empty()) {
+        deliverInfo * data = delivering.front();
+        delivering.pop_front();
+        return data;
+    }
+    return NULL;
 }

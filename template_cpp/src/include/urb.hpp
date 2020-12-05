@@ -18,10 +18,14 @@ class Urb {
         std::unordered_map<unsigned long, std::set<unsigned long>> delivered;
         std::deque<deliverInfo*> delivering;
 
+        // I would love to find a better way than having a map only for this
+        std::unordered_map<unsigned long, std::unordered_map<unsigned long, std::string>> pastBufferMap;
+
         mutable std::shared_mutex forwardLock;
         mutable std::shared_mutex ackLock;
         mutable std::shared_mutex deliveredLock;
         mutable std::shared_mutex deliveringLock;
+        mutable std::shared_mutex pBuffLock;
 
         // duplicate as already in pl but maybe better like that
         std::atomic_bool run;
@@ -41,5 +45,6 @@ class Urb {
 
         // getters for the layer above
         unsigned long getId() const;
+        deliverInfo * getDelivered();
 };
 #endif

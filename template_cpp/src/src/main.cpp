@@ -7,11 +7,13 @@
 #include "host.hpp"
 #include "hello.h"
 #include <signal.h>
+#include <rcb.hpp>
 #include <urb.hpp>
 #include <perfectLink.hpp>
 
 // terrible thing having a global but I don't know how to avoid it
 //HostC * hostRef;
+rcb * rcbPointer;
 Urb * urbPointer;
 perfect_link * plPointer;
 
@@ -29,6 +31,7 @@ static void stop(int) {
   std::this_thread::sleep_for(std::chrono::seconds(3));
   */
   urbPointer->stopThreads();
+  std::this_thread::sleep_for(std::chrono::seconds(2));
 
   // write/flush output file if necessary
   std::cout << "Writing output.\n";
@@ -40,6 +43,7 @@ static void stop(int) {
 
   delete plPointer;
   delete urbPointer;
+  delete rcbPointer;
 
   // exit directly from signal handler
   exit(0);
@@ -143,6 +147,11 @@ int main(int argc, char **argv) {
   // create data structures
   // initialize network
   // do everything I can to save time
+
+  urbPointer = new Urb(plPointer);
+  rcbPointer = new rcb(urbPointer);
+  rcbPointer->addDependency(1);
+  rcbPointer->addDependency(2);
   
   //node.initialize_network();
   //std::thread listener(&HostC::handleMessages, std::ref(node));
@@ -157,7 +166,14 @@ int main(int argc, char **argv) {
 
   sender.join();
   */
+  /*
   urbPointer->urbBroadcast(1);
+  urbPointer->urbBroadcast(2);
+  urbPointer->urbBroadcast(3);
+  */
+  rcbPointer->rcoBroadcast(1);
+  rcbPointer->rcoBroadcast(2);
+  rcbPointer->rcoBroadcast(3);
 
   // Start to check only after the sender has broadcasted all the messages
   // This is for two reasons:
@@ -166,7 +182,9 @@ int main(int argc, char **argv) {
   // everything
 
   std::thread checker(&perfect_link::checker, plPointer);
-  std::thread extractor(&Urb::extractFromDelivering, urbPointer);
+  std::thread extractorUrb(&Urb::extractFromDelivering, urbPointer);
+  std::thread delivererUrb(&Urb::checkToDeliver, urbPointer);
+  std::thread extractorRcb(&rcb::extractFromDelivering, rcbPointer);
 
   std::cout << "Signaling end of broadcasting messages\n\n";
   coordinator.finishedBroadcasting();
