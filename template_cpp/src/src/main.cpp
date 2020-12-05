@@ -7,12 +7,14 @@
 #include "host.hpp"
 #include "hello.h"
 #include <signal.h>
+#include <controller.hpp>
 #include <rcb.hpp>
 #include <urb.hpp>
 #include <perfectLink.hpp>
 
 // terrible thing having a global but I don't know how to avoid it
 //HostC * hostRef;
+controller * controllerPointer;
 rcb * rcbPointer;
 Urb * urbPointer;
 perfect_link * plPointer;
@@ -35,7 +37,7 @@ static void stop(int) {
 
   // write/flush output file if necessary
   std::cout << "Writing output.\n";
-  //hostRef->flushBuffer();
+  controllerPointer->flushBuffer();
 
   // free network resources
   // I think I can do it in the initialization method
@@ -44,6 +46,7 @@ static void stop(int) {
   delete plPointer;
   delete urbPointer;
   delete rcbPointer;
+  delete controllerPointer;
 
   // exit directly from signal handler
   exit(0);
@@ -150,8 +153,7 @@ int main(int argc, char **argv) {
 
   urbPointer = new Urb(plPointer);
   rcbPointer = new rcb(urbPointer);
-  rcbPointer->addDependency(1);
-  rcbPointer->addDependency(2);
+  controllerPointer = new controller(parser.id(), parser.configPath(), parser.outputPath(), rcbPointer);
   
   //node.initialize_network();
   //std::thread listener(&HostC::handleMessages, std::ref(node));
