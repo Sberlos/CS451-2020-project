@@ -13,6 +13,7 @@ class controller {
     public:
         controller(const unsigned long myId, const std::string configPath, const std::string outputPath, rcb * rP);
 
+        void broadcast() const;
         void elaborateDependecies(const std::string & myLine) const;
         void flushBuffer() const;
 };

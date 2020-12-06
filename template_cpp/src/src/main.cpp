@@ -18,6 +18,13 @@ controller * controllerPointer;
 rcb * rcbPointer;
 Urb * urbPointer;
 perfect_link * plPointer;
+std::atomic_bool run = true;
+
+std::thread * listenerTPointer;
+std::thread * checkerTPointer;
+std::thread * extractorUrbTPointer;
+std::thread * delivererUrbTPointer;
+std::thread * extractorRcbTPointer;
 
 static void stop(int) {
   // reset signal handlers to default
@@ -34,6 +41,15 @@ static void stop(int) {
   */
   urbPointer->stopThreads();
   std::this_thread::sleep_for(std::chrono::seconds(2));
+
+  /*
+  // let's try with join
+  listenerTPointer->join();
+  checkerTPointer->join();
+  extractorUrbTPointer->join();
+  delivererUrbTPointer->join();
+  extractorRcbTPointer->join();
+  */
 
   // write/flush output file if necessary
   std::cout << "Writing output.\n";
@@ -166,16 +182,19 @@ int main(int argc, char **argv) {
   /*
   std::thread sender(&HostC::startBroadcasting, node);
 
-  sender.join();
   */
   /*
   urbPointer->urbBroadcast(1);
   urbPointer->urbBroadcast(2);
   urbPointer->urbBroadcast(3);
   */
+  /*
   rcbPointer->rcoBroadcast(1);
   rcbPointer->rcoBroadcast(2);
   rcbPointer->rcoBroadcast(3);
+  */
+  //controllerPointer->broadcast();
+  std::thread sender(&controller::broadcast, controllerPointer);
 
   // Start to check only after the sender has broadcasted all the messages
   // This is for two reasons:
@@ -187,6 +206,13 @@ int main(int argc, char **argv) {
   std::thread extractorUrb(&Urb::extractFromDelivering, urbPointer);
   std::thread delivererUrb(&Urb::checkToDeliver, urbPointer);
   std::thread extractorRcb(&rcb::extractFromDelivering, rcbPointer);
+  std::thread * listenerTPointer = &listener;
+  std::thread * checkerTPointer = &checker;
+  std::thread * extractorUrbTPointer = &extractorUrb;
+  std::thread * delivererUrbTPointer = &delivererUrb;
+  std::thread * extractorRcbTPointer = &extractorRcb;
+
+  sender.join();
 
   std::cout << "Signaling end of broadcasting messages\n\n";
   coordinator.finishedBroadcasting();

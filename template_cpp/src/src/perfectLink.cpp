@@ -158,7 +158,7 @@ ssize_t perfect_link::sendAck(unsigned long m, unsigned long toId, unsigned long
 void perfect_link::checker() {
     while (run.load()) {
         // TODO change the value afterwards
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         // TODO problem here: I check only expected and not if the node has been erased
         std::shared_lock expL(expectedLock);
