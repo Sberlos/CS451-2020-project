@@ -13,18 +13,17 @@
 #include <perfectLink.hpp>
 
 // terrible thing having a global but I don't know how to avoid it
-//HostC * hostRef;
 controller * controllerPointer;
 rcb * rcbPointer;
 Urb * urbPointer;
 perfect_link * plPointer;
-std::atomic_bool run = true;
 
-std::thread * listenerTPointer;
-std::thread * checkerTPointer;
-std::thread * extractorUrbTPointer;
-std::thread * delivererUrbTPointer;
-std::thread * extractorRcbTPointer;
+std::thread * sender;
+std::thread * listener;
+std::thread * checker;
+std::thread * extractorUrb;
+std::thread * delivererUrb;
+std::thread * extractorRcb;
 
 static void stop(int) {
   // reset signal handlers to default
@@ -33,36 +32,32 @@ static void stop(int) {
 
 // immediately stop network packet processing
   std::cout << "Immediately stopping network packet processing.\n";
-  /*
-  hostRef->stopThreads();
-
-  // I would have to have a join here but not sure how to have the reference to the Threads
-  std::this_thread::sleep_for(std::chrono::seconds(3));
-  */
   urbPointer->stopThreads();
-  std::this_thread::sleep_for(std::chrono::seconds(2));
 
-  /*
-  // let's try with join
-  listenerTPointer->join();
-  checkerTPointer->join();
-  extractorUrbTPointer->join();
-  delivererUrbTPointer->join();
-  extractorRcbTPointer->join();
-  */
+  listener->join();
+  checker->join();
+  extractorUrb->join();
+  delivererUrb->join();
+  extractorRcb->join();
 
   // write/flush output file if necessary
   std::cout << "Writing output.\n";
   controllerPointer->flushBuffer();
 
   // free network resources
-  // I think I can do it in the initialization method
   plPointer->free_network();
 
   delete plPointer;
   delete urbPointer;
   delete rcbPointer;
   delete controllerPointer;
+
+  delete listener;
+  delete checker;
+  delete extractorUrb;
+  delete delivererUrb;
+  delete extractorRcb;
+  delete sender;
 
   // exit directly from signal handler
   exit(0);
@@ -81,14 +76,6 @@ int main(int argc, char **argv) {
 
   hello();
 
-  /*
-  HostC node = HostC(parser.id(), parser.configPath(), parser.outputPath());
-  hostRef = &node;
-  */
-  /* This was the used one
-  HostC *node = new HostC(parser.id(), parser.configPath(), parser.outputPath());
-  hostRef = node;
-  */
   plPointer = new perfect_link(parser.id());
 
   std::cout << std::endl;
@@ -108,14 +95,10 @@ int main(int argc, char **argv) {
   auto hosts = parser.hosts();
   for (auto &host : hosts) {
 
-    //node.addHost(host.id, host.port, host.ip);
-    //node.addHost2(host.id, host.portReadable(), host.ipReadable());
-
     // This was the used one
     plPointer->addHost(host.id, host.portReadable(), host.ipReadable());
 
     if (host.id == parser.id()) {
-      //node.initialize_network2(host.portReadable());
       plPointer->initialize_network(host.portReadable());
     }
 
@@ -160,8 +143,6 @@ int main(int argc, char **argv) {
 
   Coordinator coordinator(parser.id(), barrier, signal);
 
-  //Host h = Host(atoi(parser.id().c_str()), parser
-
   // open config file and read value
   // create data structures
   // initialize network
@@ -171,48 +152,21 @@ int main(int argc, char **argv) {
   rcbPointer = new rcb(urbPointer);
   controllerPointer = new controller(parser.id(), parser.configPath(), parser.outputPath(), rcbPointer);
   
-  //node.initialize_network();
-  //std::thread listener(&HostC::handleMessages, std::ref(node));
-  std::thread listener(&perfect_link::handleMessages, plPointer);
+  listener = new std::thread(&perfect_link::handleMessages, plPointer);
 
   std::cout << "Waiting for all processes to finish initialization\n\n";
   coordinator.waitOnBarrier();
 
   std::cout << "Broadcasting messages...\n\n";
-  /*
-  std::thread sender(&HostC::startBroadcasting, node);
 
-  */
-  /*
-  urbPointer->urbBroadcast(1);
-  urbPointer->urbBroadcast(2);
-  urbPointer->urbBroadcast(3);
-  */
-  /*
-  rcbPointer->rcoBroadcast(1);
-  rcbPointer->rcoBroadcast(2);
-  rcbPointer->rcoBroadcast(3);
-  */
-  //controllerPointer->broadcast();
-  std::thread sender(&controller::broadcast, controllerPointer);
+  sender = new std::thread(&controller::broadcast, controllerPointer);
 
-  // Start to check only after the sender has broadcasted all the messages
-  // This is for two reasons:
-  // 1) I am already sending at max rate, no sense to add others things
-  // 2) Doesn't make much sense to check for missing packets while I have not yet sent
-  // everything
+  checker = new std::thread(&perfect_link::checker, plPointer);
+  extractorUrb = new std::thread(&Urb::extractFromDelivering, urbPointer);
+  delivererUrb = new std::thread(&Urb::checkToDeliver, urbPointer);
+  extractorRcb = new std::thread(&rcb::extractFromDelivering, rcbPointer);
 
-  std::thread checker(&perfect_link::checker, plPointer);
-  std::thread extractorUrb(&Urb::extractFromDelivering, urbPointer);
-  std::thread delivererUrb(&Urb::checkToDeliver, urbPointer);
-  std::thread extractorRcb(&rcb::extractFromDelivering, rcbPointer);
-  std::thread * listenerTPointer = &listener;
-  std::thread * checkerTPointer = &checker;
-  std::thread * extractorUrbTPointer = &extractorUrb;
-  std::thread * delivererUrbTPointer = &delivererUrb;
-  std::thread * extractorRcbTPointer = &extractorRcb;
-
-  sender.join();
+  sender->join();
 
   std::cout << "Signaling end of broadcasting messages\n\n";
   coordinator.finishedBroadcasting();
