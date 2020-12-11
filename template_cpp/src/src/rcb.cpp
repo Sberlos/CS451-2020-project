@@ -38,7 +38,18 @@ void rcb::extractFromDelivering() {
                     std::shared_lock pLock(pastLock);
                     const unsigned long myId = urb->getId();
                     for (auto p : past) {
+                        /*
                         if (p.first == myId && p.second != data->message) {
+                            if (delivered[myId].count(p.second) < 1) {
+                                rcoDeliver(myId, p.second);
+                                delivered[myId].insert(p.second);
+                            }
+                        }
+                        */
+                        if (p.first == myId) {
+                            if (p.second == data->message) {
+                                break;
+                            }
                             if (delivered[myId].count(p.second) < 1) {
                                 rcoDeliver(myId, p.second);
                                 delivered[myId].insert(p.second);
@@ -98,6 +109,7 @@ std::string rcb::createPastString() const {
 }
 
 void rcb::addDependency(const unsigned long & process) {
+    std::cout << "adding dependency " << process << std::endl;
     // no need to synchronize as it's called sequentially by a single thread
     dependencies.insert(process);
 }

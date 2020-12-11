@@ -167,7 +167,13 @@ void perfect_link::checker() {
             for (auto from_m : id_MapFrom.second) {
                 for (auto m_pair : from_m.second) {
                     expL.unlock();
-                    sendTrack(m_pair.first, id_MapFrom.first, from_m.first, m_pair.second.second);
+                    std::shared_lock lockA(addessesLock);
+                    if (addresses[id_MapFrom.first]) {
+                        lockA.unlock();
+                        sendTrack(m_pair.first, id_MapFrom.first, from_m.first, m_pair.second.second);
+                    } else {
+                        lockA.unlock();
+                    }
                     expL.lock();
                 }
             }
@@ -225,20 +231,15 @@ ssize_t perfect_link::sendTrack(const unsigned long m, const unsigned long toId,
 
     std::shared_lock lockA(addessesLock);
     struct addrinfo * to = addresses[toId];
-    if (to) {
-        std::cout << "addresses:" << toId << "value" << std::endl;
-    } else {
-        std::cout << "addresses:" << toId << "nil" << std::endl;
+    lockA.unlock();
+    if (!to) {
+        return -1;
     }
 
     const std::string fromIdS = std::to_string(fromId);
     std::string sM = std::to_string(id).append(",").append(fromIdS).append(",0,").append(std::to_string(m));
     // append past
     sM.append(past);
-    /*
-    const char * charM = sM.c_str();
-    return sendTo2(charM, to);
-    */
     return sendTo2(sM.c_str(), to);
 }
 
