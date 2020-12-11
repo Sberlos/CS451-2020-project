@@ -8,7 +8,6 @@ void rcb::extractFromDelivering() {
     while (run.load()) {
         deliverInfo * data = urb->getDelivered();
         if (data) {
-            std::cout << "rcb delivery:" << data->message << data->buffer << std::endl;
             std::unique_lock delLock(deliveredLock);
             if (delivered[data->fromId].count(data->message) < 1) {
                 // if there is a past to extract
@@ -38,14 +37,6 @@ void rcb::extractFromDelivering() {
                     std::shared_lock pLock(pastLock);
                     const unsigned long myId = urb->getId();
                     for (auto p : past) {
-                        /*
-                        if (p.first == myId && p.second != data->message) {
-                            if (delivered[myId].count(p.second) < 1) {
-                                rcoDeliver(myId, p.second);
-                                delivered[myId].insert(p.second);
-                            }
-                        }
-                        */
                         if (p.first == myId) {
                             if (p.second == data->message) {
                                 break;
@@ -83,20 +74,16 @@ void rcb::extractFromDelivering() {
 void rcb::rcoBroadcast(const unsigned long & m) {
     urb->urbBroadcast(m, createPastString());
     std::unique_lock pULock(pastLock);
-    //past[urb->getId()].push_back(m);
     past.push_back(std::pair<const unsigned long, const unsigned long>(urb->getId(), m));
     pULock.unlock();
     std::unique_lock bLock(outLock);
     outQueue.push_back(std::make_pair(0, m));
     bLock.unlock();
-    std::cout << "b " <<  m << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
 void rcb::rcoDeliver(const unsigned long & fromId, const unsigned long & m) {
     std::unique_lock bLock(outLock);
     outQueue.push_back(std::make_pair(fromId, m));
-    std::cout << "d " << fromId << " " << m << std::endl;
 }
 
 std::string rcb::createPastString() const {
@@ -109,7 +96,6 @@ std::string rcb::createPastString() const {
 }
 
 void rcb::addDependency(const unsigned long & process) {
-    std::cout << "adding dependency " << process << std::endl;
     // no need to synchronize as it's called sequentially by a single thread
     dependencies.insert(process);
 }

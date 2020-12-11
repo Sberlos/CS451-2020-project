@@ -9,7 +9,6 @@ void Urb::extractFromDelivering() {
     while (run.load()) {
         deliverInfo * data = pl->getDelivered();
         if (data) {
-            std::cout << "extracting from delivery:" << data->message << ", from:" << data->senderId << std::endl;
             std::unique_lock ackL(ackLock);
             ackMap[data->fromId][data->message].insert(data->senderId);
             ackL.unlock();
@@ -59,17 +58,9 @@ void Urb::checkToDeliver() {
         forLock.unlock();
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }
-    /*
-    std::cout << "deliveredMap size:" << delivered.size() << std::endl;
-    for (auto id_set : delivered) {
-        for (auto m : id_set.second) {
-            std::cout << "deliveredMap:" << id_set.first << "-" << m << std::endl;
-        }
-    }
-    */
 }
 
-void Urb::bebBroadcast(const unsigned long message, const unsigned long fromId, const std::string past) const {
+void Urb::bebBroadcast(const unsigned long & message, const unsigned long & fromId, const std::string & past) const {
     std::vector<unsigned long> addressesIds = pl->getAddressesIds();
     const unsigned long id = pl->getId();
     for (auto peerId : addressesIds) {
@@ -79,21 +70,20 @@ void Urb::bebBroadcast(const unsigned long message, const unsigned long fromId, 
     }
 }
 
-void Urb::urbBroadcast(const unsigned long m, const std::string past) {
+void Urb::urbBroadcast(const unsigned long & m, const std::string & past) {
     std::unique_lock fLock(forwardLock);
     forwardMap[pl->getId()].insert(m);
     fLock.unlock();
     bebBroadcast(m, pl->getId(), past);
 }
 
-void Urb::urbDeliver(const unsigned long fromId, const unsigned long m) {
+void Urb::urbDeliver(const unsigned long & fromId, const unsigned long & m) {
     std::shared_lock pastBL(pBuffLock);
     std::string pastS = pastBufferMap[fromId][m];
     pastBL.unlock();
     deliverInfo * data = new deliverInfo(fromId, 0, m, pastS);
     std::unique_lock dequeLock(deliveringLock);
     delivering.push_back(data);
-    std::cout << "urb deliver: d " << fromId << " " << m << pastS << std::endl;
 }
 
 void Urb::stopThreads() {

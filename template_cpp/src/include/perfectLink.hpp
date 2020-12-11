@@ -63,16 +63,16 @@ class perfect_link {
         void parseMessage(const char * buffer);
         void handleMessages();
         void addHost(unsigned long hId, unsigned short hPort, std::string hIp);
-        ssize_t sendAck(unsigned long m, unsigned long toId, unsigned long originalS);
+        ssize_t sendAck(const unsigned long & m, const unsigned long & toId, const unsigned long & originalS);
         void checker();
-        std::string appendPast(std::string mS, unsigned long pId);
-        ssize_t sendTrack(const unsigned long m, const unsigned long toId, const unsigned long fromId, const std::string past);
+        std::string appendPast(std::string mS, const unsigned long & pId);
+        ssize_t sendTrack(const unsigned long & m, const unsigned long & toId, const unsigned long & fromId, const std::string & past);
         ssize_t sendTo2(const char * m, const struct addrinfo *to);
         void free_network();
         void initialize_network(unsigned short myPort);
 
         //TODO check if I will use it
-        void deliver(const unsigned long fromId, const unsigned long senderId, const unsigned long m, const std::string buffer);
+        void deliver(const unsigned long & fromId, const unsigned long & senderId, const unsigned long & m, const std::string & buffer);
         deliverInfo * getDelivered();
 
         // getters TODO think of a better way
@@ -81,7 +81,7 @@ class perfect_link {
 
         void stopThreads();
 
-        std::string extractPast(const std::string buffer) const;
+        std::string extractPast(const std::string & buffer) const;
 };
 
 #endif

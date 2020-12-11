@@ -82,10 +82,10 @@ void perfect_link::handleMessages() {
     while (run.load()) {
         addr_size = sizeof their_addr;
         long int bytesRcv;
-        char buffer[600];
+        char buffer[8000];
         // not sure if needed
-        memset(&buffer, '\0', 600);
-        bytesRcv = recvfrom(sockfd, buffer, 600, 0, reinterpret_cast<struct sockaddr *>(&their_addr), &addr_size);
+        memset(&buffer, '\0', 8000);
+        bytesRcv = recvfrom(sockfd, buffer, 8000, 0, reinterpret_cast<struct sockaddr *>(&their_addr), &addr_size);
         if (bytesRcv == -1) {
             continue;
         }
@@ -102,23 +102,13 @@ void perfect_link::parseMessage(const char * buffer) {
     int ack;
     int parsedN;
     if (std::sscanf(buffer,"%lu,%lu,%d,%lu", &senderId, &fromId, &ack, &message) == 4) {
-        std::cout << "received:" << buffer << std::endl;
         if (ack) {
-            std::cout << "ack from:" << senderId << std::endl;
             std::unique_lock expLock(expectedLock);
-            std::cout << "got the lock" << std::endl;
-            expected[senderId][fromId].erase(message); // does it work this way? test says yes
+            expected[senderId][fromId].erase(message);
             expLock.unlock();
 
-            /*
-            // extract the size of the correct addresses
-            std::shared_lock lockAddr(addessesLock);
-            unsigned long addrSize = addresses.size();
-            */
-
-            std::unique_lock lockAck(ackLock); //remember to do this in the watcher
+            std::unique_lock lockAck(ackLock);
             ackMap[fromId][message].insert(senderId);
-            //std::cout << ackMap[fromId][message].size() << " : " << addrSize << std::endl;
             lockAck.unlock();
 
             std::shared_lock delShLock(deliveredLock);
@@ -143,25 +133,22 @@ void perfect_link::parseMessage(const char * buffer) {
     }
 }
 
-ssize_t perfect_link::sendAck(unsigned long m, unsigned long toId, unsigned long originalS) {
+ssize_t perfect_link::sendAck(const unsigned long & m, const unsigned long & toId, const unsigned long & originalS) {
     struct addrinfo * to = addresses[toId];
 
     std::string charMid = std::to_string(m);
     std::string from = std::to_string(id);
     std::string strOriginal = std::to_string(originalS);
-    std::string Smess = from.append(",").append(strOriginal).append(",1,").append(charMid); //TODO implement new way
+    std::string Smess = from.append(",").append(strOriginal).append(",1,").append(charMid);
     const char * mess = Smess.c_str();
 
-    //writeError(Smess);
     return sendTo2(mess, to);
 }
 
 void perfect_link::checker() {
     while (run.load()) {
-        // TODO change the value afterwards
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        // TODO problem here: I check only expected and not if the node has been erased
         std::shared_lock expL(expectedLock);
         for (auto id_MapFrom : expected) {
             for (auto from_m : id_MapFrom.second) {
@@ -178,46 +165,17 @@ void perfect_link::checker() {
                 }
             }
         }
-        expL.unlock(); // Don't think it's needed
-
-        // check if in the meantime some process failes therefore we have to check if we
-        // previously completed the uniform messaging procedure, if yes deliver
-        // TODO I have to remove the completed messages from the ackMap otherwise too much work
-        /* This thing belongs to URB move there TODO
-        std::shared_lock lockAddr(addessesLock);
-        unsigned long addrSize = addresses.size();
-
-        std::shared_lock lockAck(ackLock);
-        for (auto i : ackMap) {
-            for (auto m : i.second) { // m = pair (message -> set)
-                //for (auto p : m.second) {
-
-                std::cout << m.second.size() << " : " << addrSize << std::endl;
-                // all the addresses have rebroadcasted my message
-                //if (m.second.size() == addrSize) {
-                if (m.second.size() == addrSize - 1) {
-                    std::unique_lock lockP(pastLock);
-                    past[i.first].erase(m.first);
-                    lockP.unlock();
-                    urbDeliver(m.first, i.first, std::string(""));
-                }
-            }
-        }
-        */
+        expL.unlock();
     }
 }
 
 // Send data and add the tracking to it if missing
-ssize_t perfect_link::sendTrack(const unsigned long m, const unsigned long toId, const unsigned long fromId, const std::string past) {
-    //writeError("S: starting sendTrack");
-    std::cout << "m:" << m << ",to:" << toId << ",from:" << fromId << std::endl;
+ssize_t perfect_link::sendTrack(const unsigned long & m, const unsigned long & toId, const unsigned long & fromId, const std::string & past) {
 
-    //std::unordered_map<long unsigned int, int> mE = expected[toId];
     std::unique_lock lockE(expectedLock);
     unsigned vE = expected[toId][fromId][m].first;
-    expected[toId][fromId][m].first = ++vE; // Can I do it? TODO check
+    expected[toId][fromId][m].first = ++vE;
     expected[toId][fromId][m].second = past;
-    //expectedLock.unlock();
     lockE.unlock();
     if (vE > expectedTreshold) {
         // remove process from correct -> addresses list
@@ -243,7 +201,7 @@ ssize_t perfect_link::sendTrack(const unsigned long m, const unsigned long toId,
     return sendTo2(sM.c_str(), to);
 }
 
-std::string perfect_link::appendPast(std::string mS, unsigned long pId) {
+std::string perfect_link::appendPast(std::string mS, const unsigned long & pId) {
     std::shared_lock pSLock(pastLock);
     for (unsigned long m : past[pId]) {
         mS.append(";").append(std::to_string(m));
@@ -253,11 +211,10 @@ std::string perfect_link::appendPast(std::string mS, unsigned long pId) {
 }
 
 ssize_t perfect_link::sendTo2(const char * m, const struct addrinfo *to) {
-      std::cout << "sending:" << m << std::endl;
       return sendto(sockfd, m, strlen(m), 0, to->ai_addr, to->ai_addrlen);
 }
 
-void perfect_link::deliver(const unsigned long fromId, const unsigned long senderId, const unsigned long m, const std::string buffer) {
+void perfect_link::deliver(const unsigned long & fromId, const unsigned long & senderId, const unsigned long & m, const std::string & buffer) {
     deliverInfo * data = new deliverInfo(fromId, senderId, m, buffer);
     std::unique_lock dequeLock(deliveringLock);
     delivering.push_back(data);
@@ -290,7 +247,7 @@ void perfect_link::stopThreads() {
     run = false;
 }
 
-std::string perfect_link::extractPast(const std::string buffer) const {
+std::string perfect_link::extractPast(const std::string & buffer) const {
     unsigned long start = buffer.find(";");
     if (start == std::string::npos) {
         return "";
