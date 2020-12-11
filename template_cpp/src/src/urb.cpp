@@ -32,13 +32,13 @@ void Urb::extractFromDelivering() {
             }
             delete data;
         } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
         }
     }
 }
 
 void Urb::checkToDeliver() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
     while (run.load()) {
         std::shared_lock forLock(forwardLock);
         for (auto id_mSet : forwardMap) {
@@ -57,14 +57,16 @@ void Urb::checkToDeliver() {
             }
         }
         forLock.unlock();
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }
+    /*
     std::cout << "deliveredMap size:" << delivered.size() << std::endl;
     for (auto id_set : delivered) {
         for (auto m : id_set.second) {
             std::cout << "deliveredMap:" << id_set.first << "-" << m << std::endl;
         }
     }
+    */
 }
 
 void Urb::bebBroadcast(const unsigned long message, const unsigned long fromId, const std::string past) const {

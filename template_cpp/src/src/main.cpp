@@ -32,12 +32,16 @@ static void stop(int) {
 
 // immediately stop network packet processing
   std::cout << "Immediately stopping network packet processing.\n";
-  urbPointer->stopThreads();
+  controllerPointer->stopThreads();
 
   listener->join();
+  std::cout << "listener stopped" << std::endl;
   checker->join();
+  std::cout << "checker stopped" << std::endl;
   extractorUrb->join();
+  std::cout << "extractorUrb stopped" << std::endl;
   delivererUrb->join();
+  std::cout << "delivererUrb stopped" << std::endl;
   extractorRcb->join();
 
   // write/flush output file if necessary

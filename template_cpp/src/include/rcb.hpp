@@ -38,5 +38,6 @@ class rcb {
         void addDependency(const unsigned long & process);
         std::vector<std::pair<const unsigned long, const unsigned long>> pastToV(const std::string & past) const;
         std::deque<std::pair<const unsigned long, const unsigned long>> getOutQueue() const;
+        void stopThreads();
 };
 #endif

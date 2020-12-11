@@ -29,7 +29,7 @@ class perfect_link {
         // from who I expect the ack -> original sender of m -> m -> (count, past)
         std::unordered_map<long unsigned, std::unordered_map<long unsigned, std::unordered_map<long unsigned, std::pair<unsigned, std::string>>>> expected;
         
-        unsigned expectedTreshold = 5;
+        unsigned expectedTreshold = 25;
         std::unordered_map<unsigned long, std::unordered_map<unsigned long, std::unordered_set<unsigned long>>> ackMap;
         // Isn't this replicated in every layer?
         //std::unordered_map<unsigned long, std::set<unsigned long>> delivered;

@@ -16,5 +16,6 @@ class controller {
         void broadcast() const;
         void elaborateDependecies(const std::string & myLine) const;
         void flushBuffer() const;
+        void stopThreads() const;
 };
 #endif

@@ -82,10 +82,10 @@ void perfect_link::handleMessages() {
     while (run.load()) {
         addr_size = sizeof their_addr;
         long int bytesRcv;
-        char buffer[20];
+        char buffer[600];
         // not sure if needed
-        memset(&buffer, '\0', 20);
-        bytesRcv = recvfrom(sockfd, buffer, 20, 0, reinterpret_cast<struct sockaddr *>(&their_addr), &addr_size);
+        memset(&buffer, '\0', 600);
+        bytesRcv = recvfrom(sockfd, buffer, 600, 0, reinterpret_cast<struct sockaddr *>(&their_addr), &addr_size);
         if (bytesRcv == -1) {
             continue;
         }
@@ -106,6 +106,7 @@ void perfect_link::parseMessage(const char * buffer) {
         if (ack) {
             std::cout << "ack from:" << senderId << std::endl;
             std::unique_lock expLock(expectedLock);
+            std::cout << "got the lock" << std::endl;
             expected[senderId][fromId].erase(message); // does it work this way? test says yes
             expLock.unlock();
 
@@ -165,10 +166,13 @@ void perfect_link::checker() {
         for (auto id_MapFrom : expected) {
             for (auto from_m : id_MapFrom.second) {
                 for (auto m_pair : from_m.second) {
+                    expL.unlock();
                     sendTrack(m_pair.first, id_MapFrom.first, from_m.first, m_pair.second.second);
+                    expL.lock();
                 }
             }
         }
+        expL.unlock(); // Don't think it's needed
 
         // check if in the meantime some process failes therefore we have to check if we
         // previously completed the uniform messaging procedure, if yes deliver
@@ -208,24 +212,34 @@ ssize_t perfect_link::sendTrack(const unsigned long m, const unsigned long toId,
     expected[toId][fromId][m].first = ++vE; // Can I do it? TODO check
     expected[toId][fromId][m].second = past;
     //expectedLock.unlock();
+    lockE.unlock();
     if (vE > expectedTreshold) {
         // remove process from correct -> addresses list
         std::unique_lock lockA(addessesLock);
         // I should also free the addrinfo
         freeaddrinfo(addresses[toId]);
         addresses.erase(toId);
+        std::cout << "REMOVE " << toId << std::endl;
         return 0;
     }
 
     std::shared_lock lockA(addessesLock);
     struct addrinfo * to = addresses[toId];
+    if (to) {
+        std::cout << "addresses:" << toId << "value" << std::endl;
+    } else {
+        std::cout << "addresses:" << toId << "nil" << std::endl;
+    }
 
     const std::string fromIdS = std::to_string(fromId);
     std::string sM = std::to_string(id).append(",").append(fromIdS).append(",0,").append(std::to_string(m));
     // append past
     sM.append(past);
+    /*
     const char * charM = sM.c_str();
     return sendTo2(charM, to);
+    */
+    return sendTo2(sM.c_str(), to);
 }
 
 std::string perfect_link::appendPast(std::string mS, unsigned long pId) {
